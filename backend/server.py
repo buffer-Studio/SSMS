@@ -201,7 +201,7 @@ async def load_demo_schedules():
 
     # Demo schedule templates - realistic school subjects
     demo_schedules = {
-        "Alex Johnson": [
+        "Sagnik Sir": [
             # Monday
             {"day": "Monday", "period": 1, "subject": "Mathematics", "class_name": "Grade 10A"},
             {"day": "Monday", "period": 2, "subject": "Mathematics", "class_name": "Grade 10B"},
@@ -228,7 +228,7 @@ async def load_demo_schedules():
             {"day": "Friday", "period": 2, "subject": "Mathematics", "class_name": "Grade 9A"},
             {"day": "Friday", "period": 4, "subject": "Algebra", "class_name": "Grade 11A"},
         ],
-        "Amy Chen": [
+        "Nadeem Sir": [
             # Monday
             {"day": "Monday", "period": 1, "subject": "Physics", "class_name": "Grade 11A"},
             {"day": "Monday", "period": 2, "subject": "Physics", "class_name": "Grade 12A"},
@@ -254,7 +254,7 @@ async def load_demo_schedules():
             {"day": "Friday", "period": 2, "subject": "Chemistry", "class_name": "Grade 10A"},
             {"day": "Friday", "period": 4, "subject": "Science", "class_name": "Grade 9A"},
         ],
-        "John Smith": [
+        "Prinshu Sir": [
             # Monday
             {"day": "Monday", "period": 1, "subject": "English Literature", "class_name": "Grade 11A"},
             {"day": "Monday", "period": 2, "subject": "English", "class_name": "Grade 9A"},
@@ -280,7 +280,7 @@ async def load_demo_schedules():
             {"day": "Friday", "period": 2, "subject": "English", "class_name": "Grade 10A"},
             {"day": "Friday", "period": 4, "subject": "English Literature", "class_name": "Grade 11A"},
         ],
-        "Sara Williams": [
+        "Abhishek Sir": [
             # Monday
             {"day": "Monday", "period": 1, "subject": "History", "class_name": "Grade 10A"},
             {"day": "Monday", "period": 2, "subject": "Geography", "class_name": "Grade 9A"},
