@@ -5,10 +5,11 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { LogOut, Moon, Sun, Users, Calendar, Settings as SettingsIcon, Plus, Trash2, Edit2, QrCode } from 'lucide-react';
+import { LogOut, Moon, Sun, Users, Calendar, Settings as SettingsIcon, Plus, Trash2, Edit2, QrCode, AlertTriangle } from 'lucide-react';
 import TimetableGrid from '../components/TimetableGrid';
 import QRCodeModal from '../components/QRCodeModal';
 
@@ -27,13 +28,28 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
   const [showAddTeacher, setShowAddTeacher] = useState(false);
   const [showEditSchedule, setShowEditSchedule] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
+  const [showAddScheduleModal, setShowAddScheduleModal] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [selectedSchedule, setSelectedSchedule] = useState(null);
+  const [scheduleSlot, setScheduleSlot] = useState({ day: '', period: null });
 
   const [newTeacher, setNewTeacher] = useState({
     username: '',
     password: '',
     name: ''
+  });
+
+  const [newScheduleEntry, setNewScheduleEntry] = useState({
+    subject: '',
+    class_name: ''
+  });
+
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    title: '',
+    description: '',
+    onConfirm: null,
+    variant: 'default'
   });
 
   useEffect(() => {
@@ -78,17 +94,24 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
   };
 
   const handleDeleteTeacher = async (teacherId) => {
-    if (!window.confirm('Are you sure you want to delete this teacher?')) return;
-
-    try {
-      await axios.delete(`${API}/users/${teacherId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      toast.success('Teacher deleted successfully');
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to delete teacher');
-    }
+    setConfirmDialog({
+      open: true,
+      title: 'Delete Teacher?',
+      description: 'This action cannot be undone. This will permanently delete the teacher and all associated schedules.',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API}/users/${teacherId}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          toast.success('Teacher deleted successfully');
+          fetchData();
+        } catch (error) {
+          toast.error('Failed to delete teacher');
+        }
+        setConfirmDialog({ ...confirmDialog, open: false });
+      }
+    });
   };
 
   const handleUpdateBreak = async (value) => {
@@ -134,24 +157,36 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
       return;
     }
 
-    const teacher = teachers.find(t => t.id === selectedTeacher);
-    const subject = prompt('Enter subject name:');
-    const className = prompt('Enter class name:');
+    // Open the modal with the selected day and period
+    setScheduleSlot({ day, period });
+    setNewScheduleEntry({ subject: '', class_name: '' });
+    setShowAddScheduleModal(true);
+  };
 
-    if (!subject || !className) return;
+  const handleSubmitScheduleEntry = async (e) => {
+    e.preventDefault();
+
+    if (!selectedTeacher) {
+      toast.error('Please select a teacher first');
+      return;
+    }
+
+    const teacher = teachers.find(t => t.id === selectedTeacher);
 
     try {
       await axios.post(`${API}/schedules`, {
         teacher_id: teacher.id,
         teacher_name: teacher.name,
-        day,
-        period,
-        subject,
-        class_name: className
+        day: scheduleSlot.day,
+        period: scheduleSlot.period,
+        subject: newScheduleEntry.subject.trim(),
+        class_name: newScheduleEntry.class_name.trim()
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      toast.success('Schedule entry added');
+      toast.success('Schedule entry added successfully!');
+      setShowAddScheduleModal(false);
+      setNewScheduleEntry({ subject: '', class_name: '' });
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add schedule');
@@ -159,46 +194,67 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
   };
 
   const handleDeleteSchedule = async (scheduleId) => {
-    if (!window.confirm('Delete this schedule entry?')) return;
-
-    try {
-      await axios.delete(`${API}/schedules/${scheduleId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      toast.success('Schedule deleted');
-      setShowEditSchedule(false);
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to delete schedule');
-    }
+    setConfirmDialog({
+      open: true,
+      title: 'Delete Schedule Entry?',
+      description: 'This will permanently remove this schedule entry from the timetable.',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API}/schedules/${scheduleId}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          toast.success('Schedule deleted successfully');
+          setShowEditSchedule(false);
+          fetchData();
+        } catch (error) {
+          toast.error('Failed to delete schedule');
+        }
+        setConfirmDialog({ ...confirmDialog, open: false });
+      }
+    });
   };
 
   const handleLoadDemoSchedules = async () => {
-    if (!window.confirm('This will replace all existing schedules with demo data. Continue?')) return;
-
-    try {
-      await axios.post(`${API}/demo/load-schedules`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      toast.success('Demo schedules loaded successfully!');
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to load demo schedules');
-    }
+    setConfirmDialog({
+      open: true,
+      title: 'Load Demo Schedules?',
+      description: 'This will replace all existing schedules with demo data. This action cannot be undone.',
+      variant: 'default',
+      onConfirm: async () => {
+        try {
+          await axios.post(`${API}/demo/load-schedules`, {}, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          toast.success('Demo schedules loaded successfully!');
+          fetchData();
+        } catch (error) {
+          toast.error('Failed to load demo schedules');
+        }
+        setConfirmDialog({ ...confirmDialog, open: false });
+      }
+    });
   };
 
   const handleClearAllSchedules = async () => {
-    if (!window.confirm('This will delete ALL schedules and changelogs. Are you sure?')) return;
-
-    try {
-      await axios.post(`${API}/demo/clear-schedules`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      toast.success('All schedules cleared');
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to clear schedules');
-    }
+    setConfirmDialog({
+      open: true,
+      title: 'Clear All Schedules?',
+      description: 'This will permanently delete ALL schedules and changelogs. This is a destructive action that cannot be undone!',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          await axios.post(`${API}/demo/clear-schedules`, {}, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          toast.success('All schedules cleared');
+          fetchData();
+        } catch (error) {
+          toast.error('Failed to clear schedules');
+        }
+        setConfirmDialog({ ...confirmDialog, open: false });
+      }
+    });
   };
 
   if (loading) {
@@ -509,6 +565,114 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
 
       {/* QR Code Modal */}
       <QRCodeModal open={showQRModal} onClose={() => setShowQRModal(false)} />
+
+      {/* Add Schedule Entry Modal */}
+      <Dialog open={showAddScheduleModal} onOpenChange={setShowAddScheduleModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-5 h-5 text-blue-600" />
+              Add Schedule Entry
+            </DialogTitle>
+            <DialogDescription>
+              Adding entry for {scheduleSlot.day}, Period {scheduleSlot.period}
+              {selectedTeacher && (
+                <span className="block mt-1 font-medium text-gray-700 dark:text-gray-300">
+                  Teacher: {teachers.find(t => t.id === selectedTeacher)?.name}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmitScheduleEntry} className="space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="new-subject" className="text-sm font-medium">
+                Subject Name *
+              </Label>
+              <Input
+                id="new-subject"
+                name="subject"
+                placeholder="e.g., Mathematics, Science, English"
+                value={newScheduleEntry.subject}
+                onChange={(e) => setNewScheduleEntry({ ...newScheduleEntry, subject: e.target.value })}
+                required
+                maxLength={50}
+                className="transition-all focus:ring-2 focus:ring-blue-500"
+                autoFocus
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {newScheduleEntry.subject.length}/50 characters
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="new-class" className="text-sm font-medium">
+                Class/Section *
+              </Label>
+              <Input
+                id="new-class"
+                name="class_name"
+                placeholder="e.g., 10-A, Grade 9B, Class 12"
+                value={newScheduleEntry.class_name}
+                onChange={(e) => setNewScheduleEntry({ ...newScheduleEntry, class_name: e.target.value })}
+                required
+                maxLength={30}
+                className="transition-all focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {newScheduleEntry.class_name.length}/30 characters
+              </p>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowAddScheduleModal(false);
+                  setNewScheduleEntry({ subject: '', class_name: '' });
+                }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                disabled={!newScheduleEntry.subject.trim() || !newScheduleEntry.class_name.trim()}
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add Entry
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation Dialog */}
+      <AlertDialog open={confirmDialog.open} onOpenChange={(open) => setConfirmDialog({ ...confirmDialog, open })}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className={`w-5 h-5 ${confirmDialog.variant === 'destructive' ? 'text-red-600' : 'text-yellow-600'}`} />
+              {confirmDialog.title}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmDialog.description}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConfirmDialog({ ...confirmDialog, open: false })}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDialog.onConfirm}
+              className={confirmDialog.variant === 'destructive' ? 'bg-red-600 hover:bg-red-700' : ''}
+            >
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

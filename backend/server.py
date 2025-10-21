@@ -1,10 +1,7 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from dotenv import load_dotenv
+from fastapi.exceptions import RequestValidationError
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
@@ -13,23 +10,48 @@ from datetime import datetime, timezone, timedelta
 import jwt
 from passlib.context import CryptContext
 
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+# Import configuration and utilities
+from config import settings
+from logging_config import setup_logging, get_logger
+from exceptions import (
+    APIException,
+    NotFoundException,
+    ConflictException,
+    UnauthorizedException,
+    ForbiddenException,
+    ValidationException,
+    api_exception_handler,
+    validation_exception_handler,
+    generic_exception_handler,
+    SuccessResponse
+)
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# Initialize logging
+setup_logging(log_level="INFO" if not settings.debug else "DEBUG")
+logger = get_logger(__name__)
+
+# Database connection - SQLite (no setup required!)
+from database import db, client
+logger.info("✓ Using SQLite database (no setup required!)")
 
 # Security setup
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
-SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'your-secret-key-change-in-production')
-ALGORITHM = "HS256"
 
 # Create the main app
-app = FastAPI()
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.app_version,
+    description="API for School Scheduling Management System",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 api_router = APIRouter(prefix="/api")
+
+# Register exception handlers
+app.add_exception_handler(APIException, api_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(Exception, generic_exception_handler)
 
 # ============ Models ============
 
@@ -100,40 +122,53 @@ class ChangeLog(BaseModel):
 # ============ Helper Functions ============
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    """Hash password - truncate to 72 bytes for bcrypt compatibility."""
+    # Bcrypt has a 72-byte limit, truncate if needed
+    password_bytes = password.encode('utf-8')[:72]
+    return pwd_context.hash(password_bytes.decode('utf-8'))
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify password against hash."""
+    password_bytes = plain_password.encode('utf-8')[:72]
+    return pwd_context.verify(password_bytes.decode('utf-8'), hashed_password)
 
 def create_token(user_id: str, username: str, role: str) -> str:
+    """Create JWT token for user authentication."""
     payload = {
         "sub": user_id,
         "username": username,
         "role": role,
-        "exp": datetime.now(timezone.utc) + timedelta(days=7)
+        "exp": datetime.now(timezone.utc) + timedelta(days=settings.jwt_expiration_days)
     }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Validate JWT token and return current user."""
     try:
         token = credentials.credentials
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
         user_id = payload.get("sub")
         if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
+            raise UnauthorizedException(detail="Invalid token payload")
 
         user_doc = await db.users.find_one({"id": user_id}, {"_id": 0})
         if not user_doc:
-            raise HTTPException(status_code=401, detail="User not found")
+            raise NotFoundException(resource="User", detail="User not found in database")
 
         if isinstance(user_doc.get('created_at'), str):
             user_doc['created_at'] = datetime.fromisoformat(user_doc['created_at'])
 
+        logger.debug(f"User authenticated: {user_doc.get('username')}")
         return User(**user_doc)
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
+        logger.warning("Expired token attempt")
+        raise UnauthorizedException(detail="Token has expired")
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid token: {str(e)}")
+        raise UnauthorizedException(detail="Invalid token format")
     except Exception as e:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        logger.error(f"Authentication error: {str(e)}")
+        raise UnauthorizedException(detail="Authentication failed")
 
 # ============ Initialize Demo Data ============
 
@@ -197,7 +232,8 @@ async def load_demo_schedules():
     """Load comprehensive demo timetable data for all teachers"""
 
     # Get all teachers
-    teachers = await db.users.find({"role": "teacher"}, {"_id": 0}).to_list(100)
+    cursor = await db.users.find({"role": "teacher"}, {"_id": 0})
+    teachers = await cursor.to_list(100)
 
     # Demo schedule templates - realistic school subjects
     demo_schedules = {
@@ -327,7 +363,15 @@ async def load_demo_schedules():
 
 @app.on_event("startup")
 async def startup_event():
-    await init_demo_data()
+    """Initialize application on startup."""
+    try:
+        # Test database connection
+        await db.command('ping')
+        logger.info("✅ SQLite database connection successful")
+        await init_demo_data()
+    except Exception as e:
+        logger.error(f"Database initialization failed: {str(e)}")
+        logger.warning("⚠️  Server starting without database.")
 
 # ============ Auth Routes ============
 
@@ -354,10 +398,13 @@ async def verify_token(current_user: User = Depends(get_current_user)):
 
 @api_router.get("/users", response_model=List[User])
 async def get_users(current_user: User = Depends(get_current_user)):
+    """Get all users (admin only)."""
     if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Admin access required")
+        raise ForbiddenException(detail="Admin access required")
 
-    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    logger.info(f"Admin {current_user.username} requesting user list")
+    cursor = await db.users.find({}, {"_id": 0, "password_hash": 0})
+    users = await cursor.to_list(1000)
     for user in users:
         if isinstance(user.get('created_at'), str):
             user['created_at'] = datetime.fromisoformat(user['created_at'])
@@ -365,13 +412,14 @@ async def get_users(current_user: User = Depends(get_current_user)):
 
 @api_router.post("/users", response_model=User)
 async def create_user(user_data: UserCreate, current_user: User = Depends(get_current_user)):
+    """Create a new user (admin only)."""
     if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Admin access required")
+        raise ForbiddenException(detail="Admin access required")
 
     # Check if username exists
     exists = await db.users.find_one({"username": user_data.username})
     if exists:
-        raise HTTPException(status_code=400, detail="Username already exists")
+        raise ConflictException(message="Username already exists", detail=f"User '{user_data.username}' is already registered")
 
     user = User(
         username=user_data.username,
@@ -384,6 +432,7 @@ async def create_user(user_data: UserCreate, current_user: User = Depends(get_cu
     user_doc['password_hash'] = hash_password(user_data.password)
 
     await db.users.insert_one(user_doc)
+    logger.info(f"User created: {user.username} by {current_user.username}")
     return user
 
 @api_router.delete("/users/{user_id}")
@@ -410,7 +459,8 @@ async def get_schedules(teacher_id: Optional[str] = None, current_user: User = D
     elif teacher_id:
         query["teacher_id"] = teacher_id
 
-    schedules = await db.schedules.find(query, {"_id": 0}).to_list(1000)
+    cursor = await db.schedules.find(query, {"_id": 0})
+    schedules = await cursor.to_list(1000)
     for schedule in schedules:
         if isinstance(schedule.get('updated_at'), str):
             schedule['updated_at'] = datetime.fromisoformat(schedule['updated_at'])
@@ -533,7 +583,8 @@ async def get_changelogs(teacher_id: Optional[str] = None, current_user: User = 
     elif teacher_id:
         query["teacher_id"] = teacher_id
 
-    changelogs = await db.changelogs.find(query, {"_id": 0}).sort("timestamp", -1).to_list(100)
+    cursor = await db.changelogs.find(query, {"_id": 0})
+    changelogs = await cursor.sort("timestamp", -1).to_list(100)
     for log in changelogs:
         if isinstance(log.get('timestamp'), str):
             log['timestamp'] = datetime.fromisoformat(log['timestamp'])
@@ -574,17 +625,13 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=settings.cors_origins_list,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    """Close database connection on shutdown."""
+    logger.info("Shutting down database connection")
+    # SQLite connections are closed per-request, no global close needed
