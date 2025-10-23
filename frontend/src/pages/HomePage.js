@@ -128,7 +128,7 @@ const HomePage = ({ exhibitionMode, setExhibitionMode, darkMode, setDarkMode, is
 
         {/* Credits */}
         <div className="pt-8">
-          <p className="text-sm text-gray-500 dark:text-gray-500 flex items-center justify-center gap-2">
+          <p className="text-sm text-gray-500 dark:text-gray-500 flex items-center justify-center gap-2 flex-wrap">
             <span>Created by</span>
             <a
               href="https://bento.me/buffer"
@@ -137,6 +137,24 @@ const HomePage = ({ exhibitionMode, setExhibitionMode, darkMode, setDarkMode, is
               className="font-semibold text-blue-600 dark:text-blue-400 hover:underline"
             >
               Yuvraj
+            </a>
+            <span>,</span>
+            <a
+              href="https://discord.com/users/1021765669185925150"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              Naman
+            </a>
+            <span>&</span>
+            <a
+              href="https://discord.com/users/779311662737784862"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              Supriyo
             </a>
           </p>
         </div>
