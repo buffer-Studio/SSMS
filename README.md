@@ -3,7 +3,7 @@
 ## Overview
 A minimalistic yet impressive web-based scheduling management system designed for high school exhibitions. The application allows administrators to manage class timetables in real-time while teachers can view their personalized schedules with instant update notifications.
 
-## 🎯 Core Features
+## 🎯 Core Features:
 
 ### For Administrators
 - **Complete Schedule Management**: Create, edit, and delete teacher schedules across 5 working days (Monday-Friday) and 8 periods per day
