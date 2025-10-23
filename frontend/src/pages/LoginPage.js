@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { toast } from 'sonner';
+import { LogIn, ArrowLeft } from 'lucide-react';
+
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { toast } from 'sonner';
-import { LogIn, ArrowLeft } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -16,14 +17,14 @@ const LoginPage = ({ onLogin, darkMode }) => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async e => {
     e.preventDefault();
     setLoading(true);
 
     try {
       const response = await axios.post(`${API}/auth/login`, {
         username,
-        password
+        password,
       });
 
       const { token, user } = response.data;
@@ -38,7 +39,10 @@ const LoginPage = ({ onLogin, darkMode }) => {
         navigate('/dashboard');
       }
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Login failed. Please check your credentials.');
+      toast.error(
+        error.response?.data?.detail ||
+          'Login failed. Please check your credentials.'
+      );
     } finally {
       setLoading(false);
     }
@@ -71,20 +75,29 @@ const LoginPage = ({ onLogin, darkMode }) => {
                 <LogIn className="w-8 h-8 text-white" />
               </div>
             </div>
-            <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Welcome Back</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400">Sign in to access your dashboard</p>
+            <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
+              Welcome Back
+            </h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Sign in to access your dashboard
+            </p>
           </div>
 
           {/* Login form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username" className="text-gray-700 dark:text-gray-300">Username</Label>
+              <Label
+                htmlFor="username"
+                className="text-gray-700 dark:text-gray-300"
+              >
+                Username
+              </Label>
               <Input
                 id="username"
                 type="text"
                 placeholder="Enter your username"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={e => setUsername(e.target.value)}
                 required
                 className="bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-600"
                 data-testid="username-input"
@@ -92,13 +105,18 @@ const LoginPage = ({ onLogin, darkMode }) => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-gray-700 dark:text-gray-300">Password</Label>
+              <Label
+                htmlFor="password"
+                className="text-gray-700 dark:text-gray-300"
+              >
+                Password
+              </Label>
               <Input
                 id="password"
                 type="password"
                 placeholder="Enter your password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={e => setPassword(e.target.value)}
                 required
                 className="bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-600"
                 data-testid="password-input"
@@ -124,20 +142,34 @@ const LoginPage = ({ onLogin, darkMode }) => {
 
           {/* Demo accounts */}
           <div className="pt-4 border-t border-gray-200 dark:border-slate-700">
-            <p className="text-xs text-gray-500 dark:text-gray-500 text-center mb-3">Demo Accounts</p>
+            <p className="text-xs text-gray-500 dark:text-gray-500 text-center mb-3">
+              Demo Accounts
+            </p>
             <div className="space-y-2 text-xs">
               <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
-                <p className="font-semibold text-blue-900 dark:text-blue-300">Admin</p>
-                <p className="text-gray-600 dark:text-gray-400">admin123 / password123</p>
+                <p className="font-semibold text-blue-900 dark:text-blue-300">
+                  Admin
+                </p>
+                <p className="text-gray-600 dark:text-gray-400">
+                  admin123 / password123
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="bg-gray-50 dark:bg-slate-800 p-2 rounded-lg">
-                  <p className="font-semibold text-gray-700 dark:text-gray-300 text-xs">Sagnik Sir</p>
-                  <p className="text-gray-500 dark:text-gray-500 text-xs">t_sagnik / pass123</p>
+                  <p className="font-semibold text-gray-700 dark:text-gray-300 text-xs">
+                    Sagnik Sir
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-500 text-xs">
+                    t_sagnik / pass123
+                  </p>
                 </div>
                 <div className="bg-gray-50 dark:bg-slate-800 p-2 rounded-lg">
-                  <p className="font-semibold text-gray-700 dark:text-gray-300 text-xs">Nadeem Sir</p>
-                  <p className="text-gray-500 dark:text-gray-500 text-xs">t_nadeem / pass123</p>
+                  <p className="font-semibold text-gray-700 dark:text-gray-300 text-xs">
+                    Nadeem Sir
+                  </p>
+                  <p className="text-gray-500 dark:text-gray-500 text-xs">
+                    t_nadeem / pass123
+                  </p>
                 </div>
               </div>
             </div>

@@ -1,12 +1,19 @@
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
 
-const TimetableGrid = ({ schedules, breakAfter, onCellClick, onEmptyCellClick, isRecentChange, isAdmin }) => {
+const TimetableGrid = ({
+  schedules,
+  breakAfter,
+  onCellClick,
+  onEmptyCellClick,
+  isRecentChange,
+  isAdmin,
+}) => {
   const getScheduleForCell = (day, period) => {
     return schedules.find(s => s.day === day && s.period === period);
   };
 
-  const isBreakPeriod = (period) => {
+  const isBreakPeriod = period => {
     return period === breakAfter + 0.5;
   };
 
@@ -36,7 +43,7 @@ const TimetableGrid = ({ schedules, breakAfter, onCellClick, onEmptyCellClick, i
       <div
         className="timetable-grid min-w-[800px]"
         style={{
-          gridTemplateColumns: `120px repeat(${periods.length}, 1fr)`
+          gridTemplateColumns: `120px repeat(${periods.length}, 1fr)`,
         }}
       >
         {/* Header row */}
@@ -74,23 +81,30 @@ const TimetableGrid = ({ schedules, breakAfter, onCellClick, onEmptyCellClick, i
                     key={`${day}-break`}
                     className="timetable-cell bg-yellow-50 dark:bg-yellow-900/30 flex items-center justify-center"
                   >
-                    <span className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">☕ Break</span>
+                    <span className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">
+                      ☕ Break
+                    </span>
                   </div>
                 );
               }
 
               const schedule = getScheduleForCell(day, period);
-              const isRecent = schedule && isRecentChange && isRecentChange(schedule.updated_at);
+              const isRecent =
+                schedule &&
+                isRecentChange &&
+                isRecentChange(schedule.updated_at);
 
               return (
                 <div
                   key={`${day}-${period}`}
                   onClick={() => handleCellClick(schedule, day, period)}
                   className={`timetable-cell cursor-pointer ${
-                    schedule ? 'hover:shadow-md' : isAdmin ? 'hover:bg-blue-50 dark:hover:bg-blue-900/20' : ''
-                  } ${
-                    isRecent ? 'schedule-change' : ''
-                  }`}
+                    schedule
+                      ? 'hover:shadow-md'
+                      : isAdmin
+                        ? 'hover:bg-blue-50 dark:hover:bg-blue-900/20'
+                        : ''
+                  } ${isRecent ? 'schedule-change' : ''}`}
                   data-testid={`cell-${day}-${period}`}
                 >
                   {schedule ? (
@@ -118,7 +132,9 @@ const TimetableGrid = ({ schedules, breakAfter, onCellClick, onEmptyCellClick, i
                     </div>
                   ) : (
                     <div className="flex items-center justify-center h-full">
-                      <span className="text-xs text-gray-400 dark:text-gray-600">Free</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-600">
+                        Free
+                      </span>
                     </div>
                   )}
                 </div>

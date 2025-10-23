@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Button } from '../components/ui/button';
 import { toast } from 'sonner';
 import { LogOut, Moon, Sun, RefreshCw, Clock, QrCode } from 'lucide-react';
+
+import { Button } from '../components/ui/button';
 import TimetableGrid from '../components/TimetableGrid';
 import ChangeLogPanel from '../components/ChangeLogPanel';
 import QRCodeModal from '../components/QRCodeModal';
@@ -11,7 +12,14 @@ import QRCodeModal from '../components/QRCodeModal';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-const TeacherDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDarkMode }) => {
+const TeacherDashboard = ({
+  user,
+  token,
+  onLogout,
+  exhibitionMode,
+  darkMode,
+  setDarkMode,
+}) => {
   const navigate = useNavigate();
   const [schedules, setSchedules] = useState([]);
   const [breakAfter, setBreakAfter] = useState(3);
@@ -28,12 +36,12 @@ const TeacherDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, set
     try {
       const [schedulesRes, settingsRes, changelogsRes] = await Promise.all([
         axios.get(`${API}/schedules`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         }),
         axios.get(`${API}/settings/break-period`),
         axios.get(`${API}/changelogs`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
+          headers: { Authorization: `Bearer ${token}` },
+        }),
       ]);
 
       setSchedules(schedulesRes.data);
@@ -53,7 +61,7 @@ const TeacherDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, set
     toast.success('Schedule refreshed');
   };
 
-  const isRecentChange = (updatedAt) => {
+  const isRecentChange = updatedAt => {
     const now = new Date();
     const updated = new Date(updatedAt);
     const hoursDiff = (now - updated) / (1000 * 60 * 60);
@@ -78,8 +86,12 @@ const TeacherDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, set
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">My Schedule</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">Welcome, {user.name}</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+              My Schedule
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">
+              Welcome, {user.name}
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <Button
@@ -105,9 +117,17 @@ const TeacherDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, set
               className="bg-white dark:bg-slate-800 p-2 rounded-lg shadow hover:shadow-lg"
               data-testid="dark-mode-toggle"
             >
-              {darkMode ? <Sun className="w-5 h-5 text-yellow-500" /> : <Moon className="w-5 h-5 text-slate-700" />}
+              {darkMode ? (
+                <Sun className="w-5 h-5 text-yellow-500" />
+              ) : (
+                <Moon className="w-5 h-5 text-slate-700" />
+              )}
             </button>
-            <Button onClick={onLogout} variant="outline" data-testid="logout-button">
+            <Button
+              onClick={onLogout}
+              variant="outline"
+              data-testid="logout-button"
+            >
               <LogOut className="w-4 h-4 mr-2" />
               Logout
             </Button>
@@ -122,10 +142,13 @@ const TeacherDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, set
                 <Clock className="w-5 h-5 text-orange-600 dark:text-orange-400" />
               </div>
               <div>
-                <h3 className="font-semibold text-orange-900 dark:text-orange-300">Schedule Updates</h3>
+                <h3 className="font-semibold text-orange-900 dark:text-orange-300">
+                  Schedule Updates
+                </h3>
                 <p className="text-sm text-orange-700 dark:text-orange-400 mt-1">
-                  You have {changelogs.length} recent schedule change{changelogs.length !== 1 ? 's' : ''}.
-                  Updated entries are highlighted in orange.
+                  You have {changelogs.length} recent schedule change
+                  {changelogs.length !== 1 ? 's' : ''}. Updated entries are
+                  highlighted in orange.
                 </p>
               </div>
             </div>
@@ -138,7 +161,9 @@ const TeacherDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, set
           <div className="lg:col-span-2">
             <div className="glass p-6 rounded-2xl">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Weekly Timetable</h2>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Weekly Timetable
+                </h2>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   Last updated: {lastRefresh.toLocaleTimeString()}
                 </p>
@@ -153,7 +178,9 @@ const TeacherDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, set
 
               {schedules.length === 0 && (
                 <div className="text-center py-12">
-                  <p className="text-gray-500 dark:text-gray-400">No schedule assigned yet</p>
+                  <p className="text-gray-500 dark:text-gray-400">
+                    No schedule assigned yet
+                  </p>
                 </div>
               )}
             </div>

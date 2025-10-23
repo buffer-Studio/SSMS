@@ -1,14 +1,43 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { toast } from 'sonner';
+import {
+  LogOut,
+  Moon,
+  Sun,
+  Users,
+  Calendar,
+  Settings as SettingsIcon,
+  Plus,
+  Trash2,
+  Edit2,
+  QrCode,
+} from 'lucide-react';
+
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { toast } from 'sonner';
-import { LogOut, Moon, Sun, Users, Calendar, Settings as SettingsIcon, Plus, Trash2, Edit2, QrCode } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '../components/ui/tabs';
 import TimetableGrid from '../components/TimetableGrid';
 import QRCodeModal from '../components/QRCodeModal';
 
@@ -18,7 +47,14 @@ const API = `${BACKEND_URL}/api`;
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
 
-const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDarkMode }) => {
+const AdminDashboard = ({
+  user,
+  token,
+  onLogout,
+  exhibitionMode,
+  darkMode,
+  setDarkMode,
+}) => {
   const navigate = useNavigate();
   const [teachers, setTeachers] = useState([]);
   const [schedules, setSchedules] = useState([]);
@@ -33,7 +69,7 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
   const [newTeacher, setNewTeacher] = useState({
     username: '',
     password: '',
-    name: ''
+    name: '',
   });
 
   useEffect(() => {
@@ -44,12 +80,12 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
     try {
       const [teachersRes, schedulesRes, settingsRes] = await Promise.all([
         axios.get(`${API}/users`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         }),
         axios.get(`${API}/schedules`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         }),
-        axios.get(`${API}/settings/break-period`)
+        axios.get(`${API}/settings/break-period`),
       ]);
 
       setTeachers(teachersRes.data.filter(u => u.role === 'teacher'));
@@ -62,11 +98,11 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
     }
   };
 
-  const handleAddTeacher = async (e) => {
+  const handleAddTeacher = async e => {
     e.preventDefault();
     try {
       await axios.post(`${API}/users`, newTeacher, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       toast.success('Teacher added successfully');
       setShowAddTeacher(false);
@@ -77,12 +113,13 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
     }
   };
 
-  const handleDeleteTeacher = async (teacherId) => {
-    if (!window.confirm('Are you sure you want to delete this teacher?')) return;
+  const handleDeleteTeacher = async teacherId => {
+    if (!window.confirm('Are you sure you want to delete this teacher?'))
+      return;
 
     try {
       await axios.delete(`${API}/users/${teacherId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       toast.success('Teacher deleted successfully');
       fetchData();
@@ -91,11 +128,15 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
     }
   };
 
-  const handleUpdateBreak = async (value) => {
+  const handleUpdateBreak = async value => {
     try {
-      await axios.put(`${API}/settings/break-period?break_after=${value}`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await axios.put(
+        `${API}/settings/break-period?break_after=${value}`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
       setBreakAfter(value);
       toast.success(`Break period updated to after Period ${value}`);
     } catch (error) {
@@ -103,22 +144,22 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
     }
   };
 
-  const handleScheduleClick = (schedule) => {
+  const handleScheduleClick = schedule => {
     setSelectedSchedule(schedule);
     setShowEditSchedule(true);
   };
 
-  const handleUpdateSchedule = async (e) => {
+  const handleUpdateSchedule = async e => {
     e.preventDefault();
     const formData = new FormData(e.target);
     const updateData = {
       subject: formData.get('subject'),
-      class_name: formData.get('class_name')
+      class_name: formData.get('class_name'),
     };
 
     try {
       await axios.put(`${API}/schedules/${selectedSchedule.id}`, updateData, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       toast.success('Schedule updated successfully');
       setShowEditSchedule(false);
@@ -141,16 +182,20 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
     if (!subject || !className) return;
 
     try {
-      await axios.post(`${API}/schedules`, {
-        teacher_id: teacher.id,
-        teacher_name: teacher.name,
-        day,
-        period,
-        subject,
-        class_name: className
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await axios.post(
+        `${API}/schedules`,
+        {
+          teacher_id: teacher.id,
+          teacher_name: teacher.name,
+          day,
+          period,
+          subject,
+          class_name: className,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
       toast.success('Schedule entry added');
       fetchData();
     } catch (error) {
@@ -158,12 +203,12 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
     }
   };
 
-  const handleDeleteSchedule = async (scheduleId) => {
+  const handleDeleteSchedule = async scheduleId => {
     if (!window.confirm('Delete this schedule entry?')) return;
 
     try {
       await axios.delete(`${API}/schedules/${scheduleId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       toast.success('Schedule deleted');
       setShowEditSchedule(false);
@@ -174,12 +219,21 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
   };
 
   const handleLoadDemoSchedules = async () => {
-    if (!window.confirm('This will replace all existing schedules with demo data. Continue?')) return;
+    if (
+      !window.confirm(
+        'This will replace all existing schedules with demo data. Continue?'
+      )
+    )
+      return;
 
     try {
-      await axios.post(`${API}/demo/load-schedules`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await axios.post(
+        `${API}/demo/load-schedules`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
       toast.success('Demo schedules loaded successfully!');
       fetchData();
     } catch (error) {
@@ -188,12 +242,21 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
   };
 
   const handleClearAllSchedules = async () => {
-    if (!window.confirm('This will delete ALL schedules and changelogs. Are you sure?')) return;
+    if (
+      !window.confirm(
+        'This will delete ALL schedules and changelogs. Are you sure?'
+      )
+    )
+      return;
 
     try {
-      await axios.post(`${API}/demo/clear-schedules`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await axios.post(
+        `${API}/demo/clear-schedules`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
       toast.success('All schedules cleared');
       fetchData();
     } catch (error) {
@@ -219,8 +282,12 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Admin Dashboard</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">Welcome, {user.name}</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+              Admin Dashboard
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">
+              Welcome, {user.name}
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <Button
@@ -237,9 +304,17 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
               className="bg-white dark:bg-slate-800 p-2 rounded-lg shadow hover:shadow-lg"
               data-testid="dark-mode-toggle"
             >
-              {darkMode ? <Sun className="w-5 h-5 text-yellow-500" /> : <Moon className="w-5 h-5 text-slate-700" />}
+              {darkMode ? (
+                <Sun className="w-5 h-5 text-yellow-500" />
+              ) : (
+                <Moon className="w-5 h-5 text-slate-700" />
+              )}
             </button>
-            <Button onClick={onLogout} variant="outline" data-testid="logout-button">
+            <Button
+              onClick={onLogout}
+              variant="outline"
+              data-testid="logout-button"
+            >
               <LogOut className="w-4 h-4 mr-2" />
               Logout
             </Button>
@@ -267,11 +342,21 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
           <TabsContent value="schedules" className="space-y-4">
             <div className="glass p-6 rounded-2xl">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Manage Timetable</h2>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Manage Timetable
+                </h2>
                 <div className="flex items-center gap-3">
-                  <Label className="text-sm text-gray-600 dark:text-gray-400">Select Teacher:</Label>
-                  <Select value={selectedTeacher} onValueChange={setSelectedTeacher}>
-                    <SelectTrigger className="w-48" data-testid="teacher-select">
+                  <Label className="text-sm text-gray-600 dark:text-gray-400">
+                    Select Teacher:
+                  </Label>
+                  <Select
+                    value={selectedTeacher}
+                    onValueChange={setSelectedTeacher}
+                  >
+                    <SelectTrigger
+                      className="w-48"
+                      data-testid="teacher-select"
+                    >
                       <SelectValue placeholder="Choose teacher" />
                     </SelectTrigger>
                     <SelectContent>
@@ -286,7 +371,9 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
               </div>
 
               <TimetableGrid
-                schedules={schedules.filter(s => !selectedTeacher || s.teacher_id === selectedTeacher)}
+                schedules={schedules.filter(
+                  s => !selectedTeacher || s.teacher_id === selectedTeacher
+                )}
                 breakAfter={breakAfter}
                 onCellClick={handleScheduleClick}
                 onEmptyCellClick={handleAddScheduleEntry}
@@ -299,8 +386,13 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
           <TabsContent value="teachers" className="space-y-4">
             <div className="glass p-6 rounded-2xl">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Teacher Management</h2>
-                <Button onClick={() => setShowAddTeacher(true)} data-testid="add-teacher-button">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Teacher Management
+                </h2>
+                <Button
+                  onClick={() => setShowAddTeacher(true)}
+                  data-testid="add-teacher-button"
+                >
                   <Plus className="w-4 h-4 mr-2" />
                   Add Teacher
                 </Button>
@@ -308,10 +400,17 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
 
               <div className="grid gap-4">
                 {teachers.map(teacher => (
-                  <div key={teacher.id} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700">
+                  <div
+                    key={teacher.id}
+                    className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700"
+                  >
                     <div>
-                      <p className="font-semibold text-gray-900 dark:text-white">{teacher.name}</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">@{teacher.username}</p>
+                      <p className="font-semibold text-gray-900 dark:text-white">
+                        {teacher.name}
+                      </p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        @{teacher.username}
+                      </p>
                     </div>
                     <Button
                       onClick={() => handleDeleteTeacher(teacher.id)}
@@ -330,13 +429,17 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
           {/* Settings Tab */}
           <TabsContent value="settings" className="space-y-4">
             <div className="glass p-6 rounded-2xl">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">System Settings</h2>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
+                System Settings
+              </h2>
 
               <div className="space-y-4">
                 {/* Break Period Setting */}
                 <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700">
                   <div>
-                    <Label className="text-base font-medium text-gray-900 dark:text-white">Break Period Position</Label>
+                    <Label className="text-base font-medium text-gray-900 dark:text-white">
+                      Break Period Position
+                    </Label>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                       Currently: After Period {breakAfter}
                     </p>
@@ -361,9 +464,12 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
 
                 {/* Demo Data Management */}
                 <div className="p-4 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700">
-                  <Label className="text-base font-medium text-gray-900 dark:text-white">Demo Timetable Management</Label>
+                  <Label className="text-base font-medium text-gray-900 dark:text-white">
+                    Demo Timetable Management
+                  </Label>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 mb-4">
-                    Load pre-configured demo schedules for all teachers or clear all existing data
+                    Load pre-configured demo schedules for all teachers or clear
+                    all existing data
                   </p>
                   <div className="flex gap-3">
                     <Button
@@ -371,8 +477,18 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                       className="bg-blue-600 hover:bg-blue-700 text-white"
                       data-testid="load-demo-schedules-button"
                     >
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                      <svg
+                        className="w-4 h-4 mr-2"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                        />
                       </svg>
                       Load Demo Schedules
                     </Button>
@@ -382,16 +498,28 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                       className="border-red-500 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                       data-testid="clear-all-schedules-button"
                     >
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      <svg
+                        className="w-4 h-4 mr-2"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
                       </svg>
                       Clear All Schedules
                     </Button>
                   </div>
                   <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                     <p className="text-xs text-blue-900 dark:text-blue-300">
-                      <strong>Note:</strong> Demo schedules include realistic timetables for all 4 teachers (Alex, Amy, John, Sara)
-                      with subjects like Mathematics, Physics, English, and History across all weekdays.
+                      <strong>Note:</strong> Demo schedules include realistic
+                      timetables for all 4 teachers (Alex, Amy, John, Sara) with
+                      subjects like Mathematics, Physics, English, and History
+                      across all weekdays.
                     </p>
                   </div>
                 </div>
@@ -414,7 +542,9 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
               <Input
                 id="name"
                 value={newTeacher.name}
-                onChange={(e) => setNewTeacher({...newTeacher, name: e.target.value})}
+                onChange={e =>
+                  setNewTeacher({ ...newTeacher, name: e.target.value })
+                }
                 required
                 data-testid="teacher-name-input"
               />
@@ -424,7 +554,9 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
               <Input
                 id="username"
                 value={newTeacher.username}
-                onChange={(e) => setNewTeacher({...newTeacher, username: e.target.value})}
+                onChange={e =>
+                  setNewTeacher({ ...newTeacher, username: e.target.value })
+                }
                 required
                 data-testid="teacher-username-input"
               />
@@ -435,13 +567,19 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                 id="password"
                 type="password"
                 value={newTeacher.password}
-                onChange={(e) => setNewTeacher({...newTeacher, password: e.target.value})}
+                onChange={e =>
+                  setNewTeacher({ ...newTeacher, password: e.target.value })
+                }
                 required
                 data-testid="teacher-password-input"
               />
             </div>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setShowAddTeacher(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowAddTeacher(false)}
+              >
                 Cancel
               </Button>
               <Button type="submit" data-testid="submit-add-teacher">
@@ -458,7 +596,8 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
           <DialogHeader>
             <DialogTitle>Edit Schedule</DialogTitle>
             <DialogDescription>
-              {selectedSchedule && `${selectedSchedule.day}, Period ${selectedSchedule.period}`}
+              {selectedSchedule &&
+                `${selectedSchedule.day}, Period ${selectedSchedule.period}`}
             </DialogDescription>
           </DialogHeader>
           {selectedSchedule && (
@@ -494,7 +633,11 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                   Delete
                 </Button>
                 <div className="flex gap-2">
-                  <Button type="button" variant="outline" onClick={() => setShowEditSchedule(false)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowEditSchedule(false)}
+                  >
                     Cancel
                   </Button>
                   <Button type="submit" data-testid="save-schedule-button">

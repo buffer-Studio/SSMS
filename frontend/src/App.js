@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import AdminDashboard from './pages/AdminDashboard';
@@ -74,8 +75,14 @@ function App() {
           <Route
             path="/login"
             element={
-              token ? <Navigate to={user?.role === 'admin' ? '/admin' : '/dashboard'} replace /> :
-              <LoginPage onLogin={handleLogin} darkMode={darkMode} />
+              token ? (
+                <Navigate
+                  to={user?.role === 'admin' ? '/admin' : '/dashboard'}
+                  replace
+                />
+              ) : (
+                <LoginPage onLogin={handleLogin} darkMode={darkMode} />
+              )
             }
           />
           <Route

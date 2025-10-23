@@ -1,7 +1,7 @@
 import { Clock, User } from 'lucide-react';
 
 const ChangeLogPanel = ({ changelogs }) => {
-  const formatTimestamp = (timestamp) => {
+  const formatTimestamp = timestamp => {
     const date = new Date(timestamp);
     const now = new Date();
     const diffMs = now - date;
@@ -24,12 +24,16 @@ const ChangeLogPanel = ({ changelogs }) => {
         <div className="bg-blue-100 dark:bg-blue-900 p-2 rounded-lg">
           <Clock className="w-5 h-5 text-blue-600 dark:text-blue-400" />
         </div>
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Recent Changes</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+          Recent Changes
+        </h2>
       </div>
 
       {changelogs.length === 0 ? (
         <div className="text-center py-8">
-          <p className="text-gray-500 dark:text-gray-400 text-sm">No recent changes</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
+            No recent changes
+          </p>
         </div>
       ) : (
         <div className="space-y-3 max-h-[600px] overflow-y-auto">
@@ -55,12 +59,20 @@ const ChangeLogPanel = ({ changelogs }) => {
 
               <div className="space-y-1">
                 <div className="text-xs">
-                  <span className="text-gray-500 dark:text-gray-400">Previous: </span>
-                  <span className="text-gray-700 dark:text-gray-300 line-through">{log.old_value}</span>
+                  <span className="text-gray-500 dark:text-gray-400">
+                    Previous:{' '}
+                  </span>
+                  <span className="text-gray-700 dark:text-gray-300 line-through">
+                    {log.old_value}
+                  </span>
                 </div>
                 <div className="text-xs">
-                  <span className="text-gray-500 dark:text-gray-400">Current: </span>
-                  <span className="text-green-700 dark:text-green-400 font-medium">{log.new_value}</span>
+                  <span className="text-gray-500 dark:text-gray-400">
+                    Current:{' '}
+                  </span>
+                  <span className="text-green-700 dark:text-green-400 font-medium">
+                    {log.new_value}
+                  </span>
                 </div>
               </div>
 

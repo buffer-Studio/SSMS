@@ -17,7 +17,12 @@ body {
   background: linear-gradient(135deg, #1a1a2e 0%, #0f0f1e 100%);
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: 'Space Grotesk', sans-serif;
 }
 
@@ -27,7 +32,10 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Smooth transitions for interactive elements */
 button {
-  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
 }
 
 button:hover {
@@ -40,7 +48,9 @@ button:active {
 
 /* Card hover effects */
 .card-hover {
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition:
+    transform 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 .card-hover:hover {
@@ -68,7 +78,8 @@ button:active {
 }
 
 @keyframes pulse-orange {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4);
   }
   50% {
@@ -126,7 +137,8 @@ button:active {
 }
 
 @keyframes float {
-  0%, 100% {
+  0%,
+  100% {
     transform: translateX(-50%) translateY(0);
   }
   50% {
@@ -172,6 +184,10 @@ button:active {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
