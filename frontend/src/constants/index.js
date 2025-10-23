@@ -3,8 +3,9 @@
  */
 
 // API Configuration
-export const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
-export const API_BASE_URL = `${BACKEND_URL}/api`;
+import { BACKEND_URL as BACKEND_URL_CONFIG, API as API_CONFIG } from '../config/api';
+export const BACKEND_URL = BACKEND_URL_CONFIG;
+export const API_BASE_URL = API_CONFIG;
 
 // Schedule Constants
 export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
