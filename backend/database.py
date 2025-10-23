@@ -4,9 +4,12 @@ Provides async interface for database operations.
 """
 import sqlite3
 import json
+import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 class SQLiteAdapter:
     """SQLite adapter that provides async interface."""
@@ -28,9 +31,25 @@ class SQLiteAdapter:
                 password_hash TEXT NOT NULL,
                 name TEXT NOT NULL,
                 role TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                designation TEXT,
+                created_at TEXT NOT NULL,
+                password_history TEXT DEFAULT '[]'
             )
         """)
+        
+        # Add designation column if it doesn't exist (for existing databases)
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN designation TEXT")
+            logger.info("✓ Added designation column to users table")
+        except sqlite3.OperationalError as e:
+            logger.info(f"• designation column: {e}")
+        
+        # Add password_history column if it doesn't exist (for existing databases)
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN password_history TEXT DEFAULT '[]'")
+            logger.info("✓ Added password_history column to users table")
+        except sqlite3.OperationalError as e:
+            logger.info(f"• password_history column: {e}")
         
         # Schedules table
         cursor.execute("""
@@ -69,6 +88,62 @@ class SQLiteAdapter:
                 changed_by TEXT NOT NULL,
                 timestamp TEXT NOT NULL
             )
+        """)
+        
+        # Notifications table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id TEXT PRIMARY KEY,
+                category TEXT NOT NULL,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                from_user_id TEXT NOT NULL,
+                from_user_name TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                read INTEGER DEFAULT 0,
+                metadata TEXT
+            )
+        """)
+        
+        # Create indexes for performance
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_users_username 
+            ON users(username)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_schedules_teacher 
+            ON schedules(teacher_id)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_schedules_day_period 
+            ON schedules(day, period)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_schedules_class 
+            ON schedules(class_name)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_changelogs_teacher 
+            ON changelogs(teacher_id)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_changelogs_timestamp 
+            ON changelogs(timestamp DESC)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_notifications_category 
+            ON notifications(category, timestamp DESC)
+        """)
+        
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_notifications_read 
+            ON notifications(read, timestamp DESC)
         """)
         
         conn.commit()
@@ -164,15 +239,43 @@ class SQLiteCollection:
         conn.commit()
         conn.close()
     
+    async def update_many(self, query: Dict, update: Dict):
+        """Update multiple documents."""
+        conn = self.adapter.get_connection()
+        cursor = conn.cursor()
+        
+        set_values = update.get("$set", {})
+        set_clause = ", ".join([f"{k} = ?" for k in set_values.keys()])
+        
+        if query:
+            where_clause = " AND ".join([f"{k} = ?" for k in query.keys()])
+            sql = f"UPDATE {self.table_name} SET {set_clause} WHERE {where_clause}"
+            cursor.execute(sql, list(set_values.values()) + list(query.values()))
+        else:
+            # Update all if no query provided
+            sql = f"UPDATE {self.table_name} SET {set_clause}"
+            cursor.execute(sql, list(set_values.values()))
+        
+        modified_count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        
+        return type('obj', (object,), {'modified_count': modified_count})
+    
     async def delete_one(self, query: Dict):
         """Delete one document."""
         conn = self.adapter.get_connection()
         cursor = conn.cursor()
         
-        where_clause = " AND ".join([f"{k} = ?" for k in query.keys()])
-        sql = f"DELETE FROM {self.table_name} WHERE {where_clause}"
+        if query:
+            where_clause = " AND ".join([f"{k} = ?" for k in query.keys()])
+            sql = f"DELETE FROM {self.table_name} WHERE {where_clause}"
+            cursor.execute(sql, list(query.values()))
+        else:
+            # Delete all if no query provided
+            sql = f"DELETE FROM {self.table_name}"
+            cursor.execute(sql)
         
-        cursor.execute(sql, list(query.values()))
         deleted_count = cursor.rowcount
         conn.commit()
         conn.close()

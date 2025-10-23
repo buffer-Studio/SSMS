@@ -10,7 +10,7 @@ body {
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%);
+  background: linear-gradient(135deg, #f0f4f8 0%, #d9e8f5 50%, #e8f5e9 100%);
 }
 
 .dark body {
@@ -50,9 +50,10 @@ button:active {
 
 /* Glass morphism effect */
 .glass {
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(200, 210, 220, 0.5);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .dark .glass {
@@ -79,59 +80,77 @@ button:active {
 /* Timetable grid */
 .timetable-grid {
   display: grid;
-  gap: 1px;
-  background: #cbd5e1;
+  gap: 3px;
+  background: #94a3b8;
   border-radius: 12px;
   overflow: hidden;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1), 0 3px 6px rgba(0, 0, 0, 0.08);
+  border: 1px solid #cbd5e1;
 }
 
 .dark .timetable-grid {
   background: #475569;
+  border: 2px solid #475569;
 }
 
 .timetable-cell {
-  background: white;
+  background: #ffffff;
   padding: 12px;
   min-height: 80px;
-  transition: background 0.2s ease;
+  transition: all 0.2s ease;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .dark .timetable-cell {
   background: #1e293b;
+  border: 1px solid #334155;
 }
 
 .timetable-cell:hover {
   background: #f8fafc;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12), inset 0 1px 2px rgba(0, 0, 0, 0.05);
+  transform: translateY(-2px);
 }
 
 .dark .timetable-cell:hover {
   background: #2d3748;
 }
 
-/* Exhibition mode badge */
-.exhibition-badge {
-  position: fixed;
-  top: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1000;
-  padding: 8px 20px;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
-  border-radius: 24px;
-  font-weight: 600;
-  font-size: 14px;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-  animation: float 3s ease-in-out infinite;
+/* Bottom popup animations */
+@keyframes slide-in-from-bottom {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
-@keyframes float {
-  0%, 100% {
-    transform: translateX(-50%) translateY(0);
+@keyframes fade-in {
+  from {
+    opacity: 0;
   }
-  50% {
-    transform: translateX(-50%) translateY(-5px);
+  to {
+    opacity: 1;
   }
+}
+
+.animate-in {
+  animation-fill-mode: both;
+}
+
+.slide-in-from-bottom {
+  animation: slide-in-from-bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+.duration-300 {
+  animation-duration: 0.3s;
 }
 
 /* Scrollbar styling */
@@ -161,6 +180,20 @@ button:active {
   background: #94a3b8;
 }
 
+/* Custom scrollbar for changelog panel */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #2563eb 0%, #0891b2 100%);
+}
+
 /* Loading spinner */
 .spinner {
   border: 3px solid #f3f4f6;
@@ -174,4 +207,30 @@ button:active {
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+/* Enhanced card styles for light mode */
+.light-card {
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(203, 213, 225, 0.5);
+}
+
+.light-card:hover {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}
+
+/* Tab styling improvements */
+.tabs-trigger-light {
+  transition: all 0.2s ease;
+}
+
+.tabs-trigger-light:hover {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+}
+
+.tabs-trigger-light[data-state="active"] {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  box-shadow: 0 1px 3px rgba(59, 130, 246, 0.12);
 }

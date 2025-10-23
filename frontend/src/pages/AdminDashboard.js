@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
@@ -8,19 +8,21 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { LogOut, Moon, Sun, Users, Calendar, Settings as SettingsIcon, Plus, Trash2, Edit2, QrCode, AlertTriangle } from 'lucide-react';
+import { LogOut, Moon, Sun, Users, Calendar, Settings as SettingsIcon, Plus, Trash2, Edit2, QrCode, AlertTriangle, Lock, Bell } from 'lucide-react';
 import TimetableGrid from '../components/TimetableGrid';
 import QRCodeModal from '../components/QRCodeModal';
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import ChangePasswordModal from '../components/ChangePasswordModal';
+import NotificationPanel from '../components/NotificationPanel';
+import { API } from '../config/api';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
 
-const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDarkMode }) => {
+const AdminDashboard = ({ user, token, onLogout, darkMode, setDarkMode }) => {
   const navigate = useNavigate();
+  const timetableRef = useRef(null);
   const [teachers, setTeachers] = useState([]);
   const [schedules, setSchedules] = useState([]);
   const [breakAfter, setBreakAfter] = useState(3);
@@ -29,6 +31,9 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
   const [showEditSchedule, setShowEditSchedule] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
   const [showAddScheduleModal, setShowAddScheduleModal] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [selectedSchedule, setSelectedSchedule] = useState(null);
   const [scheduleSlot, setScheduleSlot] = useState({ day: '', period: null });
@@ -36,7 +41,8 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
   const [newTeacher, setNewTeacher] = useState({
     username: '',
     password: '',
-    name: ''
+    name: '',
+    designation: ''
   });
 
   const [newScheduleEntry, setNewScheduleEntry] = useState({
@@ -54,10 +60,40 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
 
   useEffect(() => {
     fetchData();
+    fetchUnreadCount();
+    // Poll for new notifications every 30 seconds
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
   }, []);
+
+  // Scroll to timetable when teacher is selected
+  useEffect(() => {
+    if (selectedTeacher && timetableRef.current) {
+      setTimeout(() => {
+        timetableRef.current?.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'start' 
+        });
+      }, 100);
+    }
+  }, [selectedTeacher]);
+
+  const fetchUnreadCount = async () => {
+    try {
+      const response = await axios.get(`${API}/notifications?unread_only=true`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setUnreadCount(response.data.length);
+    } catch (error) {
+      console.error('Failed to fetch unread count:', error);
+    }
+  };
 
   const fetchData = async () => {
     try {
+      console.log('📡 Admin fetching data from:', API);
+      console.log('🔑 Token:', token ? token.substring(0, 20) + '...' : 'NO TOKEN');
+      
       const [teachersRes, schedulesRes, settingsRes] = await Promise.all([
         axios.get(`${API}/users`, {
           headers: { Authorization: `Bearer ${token}` }
@@ -68,11 +104,17 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
         axios.get(`${API}/settings/break-period`)
       ]);
 
+      console.log('✅ Teachers loaded:', teachersRes.data.length);
+      console.log('✅ Schedules loaded:', schedulesRes.data.length);
       setTeachers(teachersRes.data.filter(u => u.role === 'teacher'));
       setSchedules(schedulesRes.data);
       setBreakAfter(settingsRes.data.break_after_period);
     } catch (error) {
-      toast.error('Failed to load data');
+      console.error('❌ Error fetching admin data:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to load data';
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -112,6 +154,25 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
         setConfirmDialog({ ...confirmDialog, open: false });
       }
     });
+  };
+
+  const handleUpdateDesignation = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const designation = formData.get('designation').trim();
+
+    try {
+      await axios.patch(`${API}/users/${selectedTeacher}/designation`, 
+        { designation },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      toast.success('Designation updated successfully');
+      setShowEditSchedule(false);
+      setSelectedTeacher(null);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update designation');
+    }
   };
 
   const handleUpdateBreak = async (value) => {
@@ -266,68 +327,88 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
   }
 
   return (
-    <div className="min-h-screen p-6">
-      {exhibitionMode && (
-        <div className="exhibition-badge">Exhibition Mode Active</div>
-      )}
-
+    <div className="min-h-screen p-3 sm:p-4 md:p-6">
       {/* Header */}
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 sm:mb-8 gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Admin Dashboard</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">Welcome, {user.name}</p>
+            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">Admin Dashboard</h1>
+            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mt-1">Welcome, {user.name}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap w-full sm:w-auto">
+            <Button
+              onClick={() => {
+                setShowNotifications(true);
+                fetchUnreadCount();
+              }}
+              variant="outline"
+              size="sm"
+              className="relative flex-1 sm:flex-none"
+            >
+              <Bell className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Notifications</span>
+              {unreadCount > 0 && (
+                <Badge className="absolute -top-2 -right-2 h-5 px-1.5 text-xs bg-red-500 border-0">
+                  {unreadCount}
+                </Badge>
+              )}
+            </Button>
             <Button
               onClick={() => setShowQRModal(true)}
               variant="outline"
               size="sm"
+              className="flex-1 sm:flex-none"
               data-testid="qr-code-button"
             >
-              <QrCode className="w-4 h-4 mr-2" />
-              QR Login
+              <QrCode className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">QR Login</span>
+            </Button>
+            <Button onClick={() => setShowChangePassword(true)} variant="outline" size="sm" className="shadow hover:shadow-lg flex-1 sm:flex-none">
+              <Lock className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Change Password</span>
             </Button>
             <button
               onClick={() => setDarkMode(!darkMode)}
               className="bg-white dark:bg-slate-800 p-2 rounded-lg shadow hover:shadow-lg"
               data-testid="dark-mode-toggle"
             >
-              {darkMode ? <Sun className="w-5 h-5 text-yellow-500" /> : <Moon className="w-5 h-5 text-slate-700" />}
+              {darkMode ? <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-500" /> : <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-slate-700" />}
             </button>
-            <Button onClick={onLogout} variant="outline" data-testid="logout-button">
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
+            <Button onClick={onLogout} variant="outline" size="sm" className="flex-1 sm:flex-none" data-testid="logout-button">
+              <LogOut className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Logout</span>
             </Button>
           </div>
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="schedules" className="space-y-6">
-          <TabsList className="bg-white dark:bg-slate-800 shadow-sm">
-            <TabsTrigger value="schedules" data-testid="schedules-tab">
-              <Calendar className="w-4 h-4 mr-2" />
-              Schedules
+        <Tabs defaultValue="schedules" className="space-y-4 sm:space-y-6">
+          <TabsList className="bg-white dark:bg-slate-800 shadow-sm grid grid-cols-3 w-full sm:w-auto">
+            <TabsTrigger value="schedules" data-testid="schedules-tab" className="text-xs sm:text-sm">
+              <Calendar className="w-3 h-3 sm:w-4 sm:h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Schedules</span>
             </TabsTrigger>
-            <TabsTrigger value="teachers" data-testid="teachers-tab">
-              <Users className="w-4 h-4 mr-2" />
-              Teachers
+            <TabsTrigger value="teachers" data-testid="teachers-tab" className="text-xs sm:text-sm">
+              <Users className="w-3 h-3 sm:w-4 sm:h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Teachers</span>
             </TabsTrigger>
-            <TabsTrigger value="settings" data-testid="settings-tab">
-              <SettingsIcon className="w-4 h-4 mr-2" />
-              Settings
+            <TabsTrigger value="settings" data-testid="settings-tab" className="text-xs sm:text-sm">
+              <SettingsIcon className="w-3 h-3 sm:w-4 sm:h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Settings</span>
             </TabsTrigger>
           </TabsList>
 
           {/* Schedules Tab */}
           <TabsContent value="schedules" className="space-y-4">
-            <div className="glass p-6 rounded-2xl">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Manage Timetable</h2>
-                <div className="flex items-center gap-3">
-                  <Label className="text-sm text-gray-600 dark:text-gray-400">Select Teacher:</Label>
+            <div className="glass p-4 sm:p-6 rounded-xl sm:rounded-2xl">
+              <div className="flex flex-col items-center mb-4 sm:mb-6 space-y-3 sm:space-y-4">
+                <h2 className="text-lg sm:text-xl font-semibold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+                  Manage Timetable
+                </h2>
+                <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 w-full sm:w-auto">
+                  <Label className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">Select Teacher:</Label>
                   <Select value={selectedTeacher} onValueChange={setSelectedTeacher}>
-                    <SelectTrigger className="w-48" data-testid="teacher-select">
+                    <SelectTrigger className="w-full sm:w-64 border-green-300 dark:border-green-700 focus:ring-green-500" data-testid="teacher-select">
                       <SelectValue placeholder="Choose teacher" />
                     </SelectTrigger>
                     <SelectContent>
@@ -341,22 +422,41 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                 </div>
               </div>
 
-              <TimetableGrid
-                schedules={schedules.filter(s => !selectedTeacher || s.teacher_id === selectedTeacher)}
-                breakAfter={breakAfter}
-                onCellClick={handleScheduleClick}
-                onEmptyCellClick={handleAddScheduleEntry}
-                isAdmin={true}
-              />
+              {!selectedTeacher ? (
+                <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                  <div className="relative">
+                    <div className="w-24 h-24 bg-gradient-to-br from-green-500/20 to-emerald-500/20 rounded-full flex items-center justify-center">
+                      <Calendar className="w-12 h-12 text-green-600 dark:text-green-400" />
+                    </div>
+                    <div className="absolute -top-2 -right-2 w-8 h-8 bg-yellow-400 rounded-full flex items-center justify-center animate-bounce">
+                      <span className="text-lg">👆</span>
+                    </div>
+                  </div>
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Select a Teacher</h3>
+                  <p className="text-gray-500 dark:text-gray-400 text-center max-w-md">
+                    Choose a teacher from the dropdown above to view and manage their timetable
+                  </p>
+                </div>
+              ) : (
+                <div ref={timetableRef} className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <TimetableGrid
+                    schedules={schedules.filter(s => s.teacher_id === selectedTeacher)}
+                    breakAfter={breakAfter}
+                    onCellClick={handleScheduleClick}
+                    onEmptyCellClick={handleAddScheduleEntry}
+                    isAdmin={true}
+                  />
+                </div>
+              )}
             </div>
           </TabsContent>
 
           {/* Teachers Tab */}
           <TabsContent value="teachers" className="space-y-4">
-            <div className="glass p-6 rounded-2xl">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Teacher Management</h2>
-                <Button onClick={() => setShowAddTeacher(true)} data-testid="add-teacher-button">
+            <div className="glass p-4 sm:p-6 rounded-xl sm:rounded-2xl">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6 gap-3">
+                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white">Teacher Management</h2>
+                <Button onClick={() => setShowAddTeacher(true)} size="sm" className="w-full sm:w-auto" data-testid="add-teacher-button">
                   <Plus className="w-4 h-4 mr-2" />
                   Add Teacher
                 </Button>
@@ -364,10 +464,44 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
 
               <div className="grid gap-4">
                 {teachers.map(teacher => (
-                  <div key={teacher.id} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700">
-                    <div>
+                  <div key={teacher.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 gap-3">
+                    <div className="flex-1">
                       <p className="font-semibold text-gray-900 dark:text-white">{teacher.name}</p>
                       <p className="text-sm text-gray-500 dark:text-gray-400">@{teacher.username}</p>
+                      {teacher.designation && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="inline-block px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs rounded-full">
+                            {teacher.designation}
+                          </span>
+                          <Button
+                            onClick={() => {
+                              setSelectedTeacher(teacher.id);
+                              setNewTeacher({ ...newTeacher, designation: teacher.designation || '' });
+                              setShowEditSchedule(true);
+                            }}
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      )}
+                      {!teacher.designation && (
+                        <Button
+                          onClick={() => {
+                            setSelectedTeacher(teacher.id);
+                            setNewTeacher({ ...newTeacher, designation: '' });
+                            setShowEditSchedule(true);
+                          }}
+                          variant="outline"
+                          size="sm"
+                          className="mt-2 h-7 text-xs"
+                        >
+                          <Plus className="w-3 h-3 mr-1" />
+                          Add Designation
+                        </Button>
+                      )}
                     </div>
                     <Button
                       onClick={() => handleDeleteTeacher(teacher.id)}
@@ -385,22 +519,24 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
 
           {/* Settings Tab */}
           <TabsContent value="settings" className="space-y-4">
-            <div className="glass p-6 rounded-2xl">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">System Settings</h2>
+            <div className="glass p-4 sm:p-6 rounded-xl sm:rounded-2xl">
+              <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white mb-4 sm:mb-6">System Settings</h2>
 
               <div className="space-y-4">
                 {/* Break Period Setting */}
-                <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 gap-3">
                   <div>
-                    <Label className="text-base font-medium text-gray-900 dark:text-white">Break Period Position</Label>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    <Label className="text-sm sm:text-base font-medium text-gray-900 dark:text-white">Break Period Position</Label>
+                    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
                       Currently: After Period {breakAfter}
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 w-full sm:w-auto">
                     <Button
                       onClick={() => handleUpdateBreak(3)}
                       variant={breakAfter === 3 ? 'default' : 'outline'}
+                      size="sm"
+                      className="flex-1 sm:flex-none"
                       data-testid="break-after-3"
                     >
                       After Period 3
@@ -408,6 +544,8 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                     <Button
                       onClick={() => handleUpdateBreak(4)}
                       variant={breakAfter === 4 ? 'default' : 'outline'}
+                      size="sm"
+                      className="flex-1 sm:flex-none"
                       data-testid="break-after-4"
                     >
                       After Period 4
@@ -417,8 +555,8 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
 
                 {/* Demo Data Management */}
                 <div className="p-4 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700">
-                  <Label className="text-base font-medium text-gray-900 dark:text-white">Demo Timetable Management</Label>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 mb-4">
+                  <Label className="text-sm sm:text-base font-medium text-gray-900 dark:text-white">Demo Timetable Management</Label>
+                  <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1 mb-4">
                     Load pre-configured demo schedules for all teachers or clear all existing data
                   </p>
                   <div className="flex gap-3">
@@ -496,6 +634,17 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                 data-testid="teacher-password-input"
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="designation">Designation (Optional)</Label>
+              <Input
+                id="designation"
+                placeholder="e.g., Mathematics tr, Science tr"
+                value={newTeacher.designation || ''}
+                onChange={(e) => setNewTeacher({...newTeacher, designation: e.target.value})}
+                data-testid="teacher-designation-input"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">Subject or department designation</p>
+            </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setShowAddTeacher(false)}>
                 Cancel
@@ -510,39 +659,48 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
 
       {/* Edit Schedule Dialog */}
       <Dialog open={showEditSchedule} onOpenChange={setShowEditSchedule}>
-        <DialogContent>
+        <DialogContent className="w-[95vw] sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Edit Schedule</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-base sm:text-lg">
+              {selectedSchedule ? 'Edit Schedule' : 'Edit Designation'}
+            </DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">
               {selectedSchedule && `${selectedSchedule.day}, Period ${selectedSchedule.period}`}
+              {!selectedSchedule && selectedTeacher && 'Update teacher designation'}
             </DialogDescription>
           </DialogHeader>
+          
+          {/* Edit Schedule Form */}
           {selectedSchedule && (
-            <form onSubmit={handleUpdateSchedule} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="subject">Subject</Label>
+            <form onSubmit={handleUpdateSchedule} className="space-y-3 sm:space-y-4">
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label htmlFor="subject" className="text-xs sm:text-sm">Subject</Label>
                 <Input
                   id="subject"
                   name="subject"
                   defaultValue={selectedSchedule.subject}
                   required
+                  className="text-sm sm:text-base"
                   data-testid="edit-subject-input"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="class_name">Class</Label>
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label htmlFor="class_name" className="text-xs sm:text-sm">Class</Label>
                 <Input
                   id="class_name"
                   name="class_name"
                   defaultValue={selectedSchedule.class_name}
                   required
+                  className="text-sm sm:text-base"
                   data-testid="edit-class-input"
                 />
               </div>
-              <div className="flex justify-between">
+              <div className="flex flex-col sm:flex-row justify-between gap-2">
                 <Button
                   type="button"
                   variant="destructive"
+                  size="sm"
+                  className="w-full sm:w-auto"
                   onClick={() => handleDeleteSchedule(selectedSchedule.id)}
                   data-testid="delete-schedule-button"
                 >
@@ -550,13 +708,44 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                   Delete
                 </Button>
                 <div className="flex gap-2">
-                  <Button type="button" variant="outline" onClick={() => setShowEditSchedule(false)}>
+                  <Button type="button" variant="outline" size="sm" className="flex-1 sm:flex-none" onClick={() => setShowEditSchedule(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" data-testid="save-schedule-button">
+                  <Button type="submit" size="sm" className="flex-1 sm:flex-none" data-testid="save-schedule-button">
                     Save Changes
                   </Button>
                 </div>
+              </div>
+            </form>
+          )}
+          
+          {/* Edit Designation Form */}
+          {!selectedSchedule && selectedTeacher && (
+            <form onSubmit={handleUpdateDesignation} className="space-y-3 sm:space-y-4">
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label htmlFor="designation" className="text-xs sm:text-sm">Designation</Label>
+                <Input
+                  id="designation"
+                  name="designation"
+                  defaultValue={newTeacher.designation}
+                  placeholder="e.g., Mathematics tr, Science tr"
+                  className="text-sm sm:text-base"
+                  required
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Enter teacher's subject specialization
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" className="flex-1" onClick={() => {
+                  setShowEditSchedule(false);
+                  setSelectedTeacher(null);
+                }}>
+                  Cancel
+                </Button>
+                <Button type="submit" size="sm" className="flex-1">
+                  Save Designation
+                </Button>
               </div>
             </form>
           )}
@@ -673,6 +862,23 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal
+        open={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
+        token={token}
+      />
+
+      {/* Notification Panel */}
+      <NotificationPanel
+        open={showNotifications}
+        onClose={() => {
+          setShowNotifications(false);
+          fetchUnreadCount();
+        }}
+        token={token}
+      />
     </div>
   );
 };

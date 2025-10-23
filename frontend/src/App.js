@@ -10,8 +10,7 @@ import '@/App.css';
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(null);
-  const [exhibitionMode, setExhibitionMode] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
 
   useEffect(() => {
     if (token) {
@@ -62,8 +61,6 @@ function App() {
             path="/"
             element={
               <HomePage
-                exhibitionMode={exhibitionMode}
-                setExhibitionMode={setExhibitionMode}
                 darkMode={darkMode}
                 setDarkMode={setDarkMode}
                 isAuthenticated={!!token}
@@ -86,7 +83,6 @@ function App() {
                   user={user}
                   token={token}
                   onLogout={handleLogout}
-                  exhibitionMode={exhibitionMode}
                   darkMode={darkMode}
                   setDarkMode={setDarkMode}
                 />
@@ -101,7 +97,6 @@ function App() {
                   user={user}
                   token={token}
                   onLogout={handleLogout}
-                  exhibitionMode={exhibitionMode}
                   darkMode={darkMode}
                   setDarkMode={setDarkMode}
                 />

@@ -32,27 +32,28 @@ const TimetableGrid = ({ schedules, breakAfter, onCellClick, onEmptyCellClick, i
   const periods = renderPeriods();
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto w-full">
       <div
-        className="timetable-grid min-w-[800px]"
+        className="timetable-grid"
         style={{
-          gridTemplateColumns: `120px repeat(${periods.length}, 1fr)`
+          gridTemplateColumns: `minmax(100px, 120px) repeat(${periods.length}, minmax(110px, 1fr))`,
+          width: '100%'
         }}
       >
         {/* Header row */}
-        <div className="timetable-cell font-semibold text-center bg-blue-50 dark:bg-blue-900/30">
-          <span className="text-gray-700 dark:text-gray-300">Day / Period</span>
+        <div className="timetable-cell font-semibold text-center bg-sky-200 dark:bg-blue-900/30 shadow-sm">
+          <span className="text-gray-900 dark:text-gray-300">Day / Period</span>
         </div>
         {periods.map(period => (
           <div
             key={period}
-            className={`timetable-cell font-semibold text-center ${
+            className={`timetable-cell font-semibold text-center shadow-sm ${
               isBreakPeriod(period)
-                ? 'bg-yellow-50 dark:bg-yellow-900/30'
-                : 'bg-blue-50 dark:bg-blue-900/30'
+                ? 'bg-amber-200 dark:bg-yellow-900/30'
+                : 'bg-sky-200 dark:bg-blue-900/30'
             }`}
           >
-            <span className="text-gray-700 dark:text-gray-300">
+            <span className="text-gray-900 dark:text-gray-300">
               {isBreakPeriod(period) ? 'Break' : `P${period}`}
             </span>
           </div>
@@ -63,18 +64,18 @@ const TimetableGrid = ({ schedules, breakAfter, onCellClick, onEmptyCellClick, i
           <>
             <div
               key={`${day}-label`}
-              className="timetable-cell font-semibold bg-blue-50 dark:bg-blue-900/30"
+              className="timetable-cell font-semibold bg-sky-200 dark:bg-blue-900/30 shadow-sm"
             >
-              <span className="text-gray-700 dark:text-gray-300">{day}</span>
+              <span className="text-gray-900 dark:text-gray-300">{day}</span>
             </div>
             {periods.map(period => {
               if (isBreakPeriod(period)) {
                 return (
                   <div
                     key={`${day}-break`}
-                    className="timetable-cell bg-yellow-50 dark:bg-yellow-900/30 flex items-center justify-center"
+                    className="timetable-cell bg-amber-200 dark:bg-yellow-900/30 flex items-center justify-center shadow-sm"
                   >
-                    <span className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">☕ Break</span>
+                    <span className="text-xs text-amber-900 dark:text-yellow-400 font-medium">☕ Break</span>
                   </div>
                 );
               }
@@ -86,8 +87,12 @@ const TimetableGrid = ({ schedules, breakAfter, onCellClick, onEmptyCellClick, i
                 <div
                   key={`${day}-${period}`}
                   onClick={() => handleCellClick(schedule, day, period)}
-                  className={`timetable-cell cursor-pointer ${
-                    schedule ? 'hover:shadow-md' : isAdmin ? 'hover:bg-blue-50 dark:hover:bg-blue-900/20' : ''
+                  className={`timetable-cell cursor-pointer transition-all ${
+                    schedule 
+                      ? 'bg-white dark:bg-slate-800 shadow-md hover:shadow-lg' 
+                      : isAdmin 
+                        ? 'hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:shadow-md' 
+                        : ''
                   } ${
                     isRecent ? 'schedule-change' : ''
                   }`}
@@ -113,8 +118,8 @@ const TimetableGrid = ({ schedules, breakAfter, onCellClick, onEmptyCellClick, i
                       )}
                     </div>
                   ) : isAdmin ? (
-                    <div className="flex items-center justify-center h-full text-gray-400">
-                      <span className="text-2xl">+</span>
+                    <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-600">
+                      <span className="text-2xl hover:text-green-500 transition-colors">+</span>
                     </div>
                   ) : (
                     <div className="flex items-center justify-center h-full">

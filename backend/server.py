@@ -1,13 +1,19 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Response, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.cors import CORSMiddleware
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
 import jwt
+import csv
+import io
+import json
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from passlib.context import CryptContext
 
 # Import configuration and utilities
@@ -38,6 +44,9 @@ logger.info("✓ Using SQLite database (no setup required!)")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
+# Rate limiting setup
+limiter = Limiter(key_func=get_remote_address)
+
 # Create the main app
 app = FastAPI(
     title=settings.app_name,
@@ -47,6 +56,10 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 api_router = APIRouter(prefix="/api")
+
+# Add rate limiter to app state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Register exception handlers
 app.add_exception_handler(APIException, api_exception_handler)
@@ -61,17 +74,59 @@ class User(BaseModel):
     username: str
     name: str
     role: str  # 'admin' or 'teacher'
+    designation: Optional[str] = None  # e.g., "Mathematics tr", "Computer tr"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    password_history: List[str] = Field(default_factory=list)  # Store last 5 password hashes
+    
+    @field_validator('password_history', mode='before')
+    @classmethod
+    def parse_password_history(cls, v):
+        """Parse password_history from JSON string if needed."""
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return []
+        return v if v is not None else []
 
 class UserCreate(BaseModel):
     username: str
     password: str
     name: str
     role: str = 'teacher'
+    designation: Optional[str] = None
 
 class UserLogin(BaseModel):
     username: str
     password: str
+
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str
+
+class PasswordReset(BaseModel):
+    new_password: str
+
+class ScheduleChangeRequest(BaseModel):
+    day: str
+    period: int
+    current_subject: Optional[str] = None
+    current_class: Optional[str] = None
+    requested_subject: str
+    requested_class: str
+    reason: str
+
+class Notification(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    category: str  # "security" or "requests"
+    title: str
+    message: str
+    from_user_id: str
+    from_user_name: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    read: bool = False
+    metadata: Optional[dict] = None
 
 class TokenResponse(BaseModel):
     token: str
@@ -187,12 +242,12 @@ async def init_demo_data():
         await db.users.insert_one(admin_doc)
         logger.info("Admin user created")
 
-    # Create demo teachers
+    # Create demo teachers with designations
     demo_teachers = [
-        {"username": "t_sagnik", "name": "Sagnik Sir", "password": "pass123"},
-        {"username": "t_nadeem", "name": "Nadeem Sir", "password": "pass123"},
-        {"username": "t_prinshu", "name": "Prinshu Sir", "password": "pass123"},
-        {"username": "t_abhishek", "name": "Abhishek Sir", "password": "pass123"},
+        {"username": "t_sagnik", "name": "Sagnik Sir", "password": "pass123", "designation": "Mathematics tr"},
+        {"username": "t_nadeem", "name": "Nadeem Sir", "password": "pass123", "designation": "Science tr"},
+        {"username": "t_prinshu", "name": "Prinshu Sir", "password": "pass123", "designation": "English tr"},
+        {"username": "t_abhishek", "name": "Abhishek Sir", "password": "pass123", "designation": "Social Studies tr"},
     ]
 
     teacher_ids = {}
@@ -202,14 +257,15 @@ async def init_demo_data():
             user = User(
                 username=teacher["username"],
                 name=teacher["name"],
-                role="teacher"
+                role="teacher",
+                designation=teacher["designation"]
             )
             user_doc = user.model_dump()
             user_doc['created_at'] = user_doc['created_at'].isoformat()
             user_doc['password_hash'] = hash_password(teacher["password"])
             await db.users.insert_one(user_doc)
             teacher_ids[teacher["username"]] = user.id
-            logger.info(f"Teacher {teacher['name']} created")
+            logger.info(f"Teacher {teacher['name']} ({teacher['designation']}) created")
         else:
             teacher_ids[teacher["username"]] = exists["id"]
 
@@ -237,7 +293,7 @@ async def load_demo_schedules():
 
     # Demo schedule templates - realistic school subjects
     demo_schedules = {
-        "Alex Johnson": [
+        "Sagnik Sir": [
             # Monday
             {"day": "Monday", "period": 1, "subject": "Mathematics", "class_name": "Grade 10A"},
             {"day": "Monday", "period": 2, "subject": "Mathematics", "class_name": "Grade 10B"},
@@ -264,7 +320,7 @@ async def load_demo_schedules():
             {"day": "Friday", "period": 2, "subject": "Mathematics", "class_name": "Grade 9A"},
             {"day": "Friday", "period": 4, "subject": "Algebra", "class_name": "Grade 11A"},
         ],
-        "Amy Chen": [
+        "Nadeem Sir": [
             # Monday
             {"day": "Monday", "period": 1, "subject": "Physics", "class_name": "Grade 11A"},
             {"day": "Monday", "period": 2, "subject": "Physics", "class_name": "Grade 12A"},
@@ -290,7 +346,7 @@ async def load_demo_schedules():
             {"day": "Friday", "period": 2, "subject": "Chemistry", "class_name": "Grade 10A"},
             {"day": "Friday", "period": 4, "subject": "Science", "class_name": "Grade 9A"},
         ],
-        "John Smith": [
+        "Prinshu Sir": [
             # Monday
             {"day": "Monday", "period": 1, "subject": "English Literature", "class_name": "Grade 11A"},
             {"day": "Monday", "period": 2, "subject": "English", "class_name": "Grade 9A"},
@@ -316,7 +372,7 @@ async def load_demo_schedules():
             {"day": "Friday", "period": 2, "subject": "English", "class_name": "Grade 10A"},
             {"day": "Friday", "period": 4, "subject": "English Literature", "class_name": "Grade 11A"},
         ],
-        "Sara Williams": [
+        "Abhishek Sir": [
             # Monday
             {"day": "Monday", "period": 1, "subject": "History", "class_name": "Grade 10A"},
             {"day": "Monday", "period": 2, "subject": "Geography", "class_name": "Grade 9A"},
@@ -376,7 +432,8 @@ async def startup_event():
 # ============ Auth Routes ============
 
 @api_router.post("/auth/login", response_model=TokenResponse)
-async def login(credentials: UserLogin):
+@limiter.limit("5/minute")
+async def login(credentials: UserLogin, request: Request):
     user_doc = await db.users.find_one({"username": credentials.username}, {"_id": 0})
 
     if not user_doc or not verify_password(credentials.password, user_doc.get('password_hash', '')):
@@ -393,6 +450,101 @@ async def login(credentials: UserLogin):
 @api_router.get("/auth/verify")
 async def verify_token(current_user: User = Depends(get_current_user)):
     return {"valid": True, "user": current_user}
+
+@api_router.post("/auth/change-password")
+async def change_password(
+    password_data: PasswordChange,
+    current_user: User = Depends(get_current_user)
+):
+    """Change password for current user."""
+    user_doc = await db.users.find_one({"id": current_user.id})
+    
+    if not user_doc:
+        raise NotFoundException(resource="User", detail="User not found")
+    
+    # Verify old password
+    if not verify_password(password_data.old_password, user_doc.get('password_hash', '')):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    # Validate new password
+    if len(password_data.new_password) < 8:
+        raise ValidationException(detail="New password must be at least 8 characters")
+    
+    if len(password_data.new_password) > 72:
+        raise ValidationException(detail="Password too long (max 72 characters)")
+    
+    # Check password history (last 5 passwords)
+    password_history = json.loads(user_doc.get('password_history', '[]'))
+    for old_hash in password_history[-5:]:
+        if verify_password(password_data.new_password, old_hash):
+            raise ValidationException(detail="Cannot reuse one of your last 5 passwords")
+    
+    # Hash new password
+    new_hash = hash_password(password_data.new_password)
+    
+    # Update password history
+    password_history.append(user_doc.get('password_hash'))
+    if len(password_history) > 5:
+        password_history = password_history[-5:]
+    
+    # Update password and history
+    await db.users.update_one(
+        {"id": current_user.id},
+        {"$set": {
+            "password_hash": new_hash,
+            "password_history": json.dumps(password_history)
+        }}
+    )
+    
+    # Send notification to admin if user is teacher
+    if current_user.role == 'teacher':
+        notification = Notification(
+            category="security",
+            title="Password Changed",
+            message=f"{current_user.name} has changed their password",
+            from_user_id=current_user.id,
+            from_user_name=current_user.name,
+            metadata={"action": "password_change", "username": current_user.username}
+        )
+        notif_doc = notification.model_dump()
+        notif_doc['timestamp'] = notif_doc['timestamp'].isoformat()
+        notif_doc['metadata'] = json.dumps(notif_doc.get('metadata', {}))
+        await db.notifications.insert_one(notif_doc)
+    
+    logger.info(f"User {current_user.username} changed their password")
+    return {"message": "Password changed successfully"}
+
+@api_router.post("/auth/reset-password/{user_id}")
+async def reset_password(
+    user_id: str,
+    password_data: PasswordReset,
+    current_user: User = Depends(get_current_user)
+):
+    """Reset password for a user (admin only)."""
+    if current_user.role != 'admin':
+        raise ForbiddenException(detail="Admin access required")
+    
+    # Find target user
+    target_user = await db.users.find_one({"id": user_id})
+    if not target_user:
+        raise NotFoundException(resource="User", detail="User not found")
+    
+    # Validate new password
+    if len(password_data.new_password) < 8:
+        raise ValidationException(detail="New password must be at least 8 characters")
+    
+    if len(password_data.new_password) > 72:
+        raise ValidationException(detail="Password too long (max 72 characters)")
+    
+    # Hash and update password
+    new_hash = hash_password(password_data.new_password)
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"password_hash": new_hash}}
+    )
+    
+    logger.info(f"Admin {current_user.username} reset password for user {target_user['username']}")
+    return {"message": f"Password reset successfully for user {target_user['username']}"}
 
 # ============ User Routes ============
 
@@ -424,7 +576,8 @@ async def create_user(user_data: UserCreate, current_user: User = Depends(get_cu
     user = User(
         username=user_data.username,
         name=user_data.name,
-        role=user_data.role
+        role=user_data.role,
+        designation=user_data.designation
     )
 
     user_doc = user.model_dump()
@@ -432,7 +585,7 @@ async def create_user(user_data: UserCreate, current_user: User = Depends(get_cu
     user_doc['password_hash'] = hash_password(user_data.password)
 
     await db.users.insert_one(user_doc)
-    logger.info(f"User created: {user.username} by {current_user.username}")
+    logger.info(f"User created: {user.username} ({user.designation or 'No designation'}) by {current_user.username}")
     return user
 
 @api_router.delete("/users/{user_id}")
@@ -448,6 +601,27 @@ async def delete_user(user_id: str, current_user: User = Depends(get_current_use
     await db.schedules.delete_many({"teacher_id": user_id})
 
     return {"message": "User deleted successfully"}
+
+class DesignationUpdate(BaseModel):
+    designation: str
+
+@api_router.patch("/users/{user_id}/designation")
+async def update_teacher_designation(
+    user_id: str, 
+    designation_data: DesignationUpdate,
+    current_user: User = Depends(get_current_user)
+):
+    """Update teacher designation (admin only)."""
+    if current_user.role != 'admin':
+        raise ForbiddenException(detail="Admin access required")
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"designation": designation_data.designation}}
+    )
+    
+    logger.info(f"Designation updated for user {user_id} by {current_user.username}")
+    return {"message": "Designation updated successfully"}
 
 # ============ Schedule Routes ============
 
@@ -472,21 +646,37 @@ async def create_schedule(schedule_data: ScheduleCreate, current_user: User = De
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    # Check for conflicts
-    conflict = await db.schedules.find_one({
+    # Check for teacher double-booking (teacher already has class at this time)
+    teacher_conflict = await db.schedules.find_one({
+        "teacher_id": schedule_data.teacher_id,
+        "day": schedule_data.day,
+        "period": schedule_data.period
+    })
+    
+    if teacher_conflict:
+        raise ConflictException(
+            detail=f"{schedule_data.teacher_name} already has a class on {schedule_data.day} period {schedule_data.period} ({teacher_conflict['subject']} with {teacher_conflict['class_name']})"
+        )
+
+    # Check for class double-booking (class already has a lesson at this time)
+    class_conflict = await db.schedules.find_one({
         "day": schedule_data.day,
         "period": schedule_data.period,
         "class_name": schedule_data.class_name
     })
 
-    if conflict:
-        raise HTTPException(status_code=400, detail="Schedule conflict: This class already has a lesson at this time")
+    if class_conflict:
+        raise ConflictException(
+            detail=f"{schedule_data.class_name} already has {class_conflict['subject']} with {class_conflict['teacher_name']} on {schedule_data.day} period {schedule_data.period}"
+        )
 
+    # Create schedule
     schedule = ScheduleEntry(**schedule_data.model_dump())
     schedule_doc = schedule.model_dump()
     schedule_doc['updated_at'] = schedule_doc['updated_at'].isoformat()
 
     await db.schedules.insert_one(schedule_doc)
+    logger.info(f"Admin {current_user.username} created schedule: {schedule_data.teacher_name} - {schedule_data.day} P{schedule_data.period}")
     return schedule
 
 @api_router.put("/schedules/{schedule_id}", response_model=ScheduleEntry)
@@ -573,6 +763,135 @@ async def update_break_settings(break_after: int, current_user: User = Depends(g
 
     return {"break_after_period": break_after}
 
+@api_router.post("/schedules/bulk-upload")
+async def bulk_upload_schedules(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """Bulk upload schedules from CSV file (admin only)."""
+    if current_user.role != 'admin':
+        raise ForbiddenException(detail="Admin access required")
+    
+    if not file.filename.endswith('.csv'):
+        raise ValidationException(detail="File must be a CSV")
+    
+    try:
+        contents = await file.read()
+        csv_data = csv.DictReader(io.StringIO(contents.decode('utf-8')))
+        
+        created_count = 0
+        skipped_count = 0
+        errors = []
+        
+        for idx, row in enumerate(csv_data, start=2):  # Start at 2 (row 1 is headers)
+            try:
+                # Validate required fields
+                if not all(key in row for key in ['teacher_id', 'teacher_name', 'day', 'period', 'subject', 'class_name']):
+                    errors.append(f"Row {idx}: Missing required fields")
+                    skipped_count += 1
+                    continue
+                
+                # Check for conflicts before inserting
+                teacher_conflict = await db.schedules.find_one({
+                    "teacher_id": row['teacher_id'],
+                    "day": row['day'],
+                    "period": int(row['period'])
+                })
+                
+                class_conflict = await db.schedules.find_one({
+                    "day": row['day'],
+                    "period": int(row['period']),
+                    "class_name": row['class_name']
+                })
+                
+                if teacher_conflict or class_conflict:
+                    errors.append(f"Row {idx}: Schedule conflict - slot already occupied")
+                    skipped_count += 1
+                    continue
+                
+                # Create schedule
+                schedule = ScheduleEntry(
+                    teacher_id=row['teacher_id'],
+                    teacher_name=row['teacher_name'],
+                    day=row['day'],
+                    period=int(row['period']),
+                    subject=row['subject'],
+                    class_name=row['class_name']
+                )
+                schedule_doc = schedule.model_dump()
+                schedule_doc['updated_at'] = schedule_doc['updated_at'].isoformat()
+                await db.schedules.insert_one(schedule_doc)
+                created_count += 1
+                
+            except Exception as e:
+                errors.append(f"Row {idx}: {str(e)}")
+                skipped_count += 1
+        
+        logger.info(f"Admin {current_user.username} bulk uploaded {created_count} schedules, skipped {skipped_count}")
+        return {
+            "message": f"Imported {created_count} schedules",
+            "created": created_count,
+            "skipped": skipped_count,
+            "errors": errors if errors else None
+        }
+    
+    except Exception as e:
+        logger.error(f"Bulk upload failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process CSV file: {str(e)}")
+
+@api_router.get("/schedules/export")
+async def export_schedules(current_user: User = Depends(get_current_user)):
+    """Export all schedules to CSV."""
+    cursor = await db.schedules.find({}, {"_id": 0})
+    schedules = await cursor.to_list(1000)
+    
+    # Convert to CSV
+    output = io.StringIO()
+    if schedules:
+        fieldnames = ['id', 'teacher_id', 'teacher_name', 'day', 'period', 'subject', 'class_name', 'updated_at']
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        
+        for schedule in schedules:
+            # Convert datetime to string if needed
+            if isinstance(schedule.get('updated_at'), datetime):
+                schedule['updated_at'] = schedule['updated_at'].isoformat()
+            writer.writerow({k: schedule.get(k, '') for k in fieldnames})
+    
+    logger.info(f"User {current_user.username} exported {len(schedules)} schedules")
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=schedules_export.csv"}
+    )
+
+@api_router.get("/schedules/template")
+async def download_template(current_user: User = Depends(get_current_user)):
+    """Download CSV template for bulk upload."""
+    if current_user.role != 'admin':
+        raise ForbiddenException(detail="Admin access required")
+    
+    output = io.StringIO()
+    fieldnames = ['teacher_id', 'teacher_name', 'day', 'period', 'subject', 'class_name']
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    
+    # Add example row
+    writer.writerow({
+        'teacher_id': 'teacher-id-here',
+        'teacher_name': 'Teacher Name',
+        'day': 'Monday',
+        'period': '1',
+        'subject': 'Mathematics',
+        'class_name': 'Grade 10A'
+    })
+    
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=schedule_template.csv"}
+    )
+
 # ============ Changelog Routes ============
 
 @api_router.get("/changelogs", response_model=List[ChangeLog])
@@ -618,6 +937,112 @@ async def clear_all_schedules(current_user: User = Depends(get_current_user)):
     await db.changelogs.delete_many({})
 
     return {"message": "All schedules cleared successfully", "status": "success"}
+
+# ============ Notification Routes ============
+
+@api_router.get("/notifications")
+async def get_notifications(
+    category: Optional[str] = None,
+    unread_only: bool = False,
+    current_user: User = Depends(get_current_user)
+):
+    """Get notifications for admin."""
+    if current_user.role != 'admin':
+        raise ForbiddenException(detail="Admin access required")
+    
+    query = {}
+    if category:
+        query["category"] = category
+    if unread_only:
+        query["read"] = 0
+    
+    cursor = await db.notifications.find(query, {"_id": 0})
+    notifications = await cursor.sort("timestamp", -1).to_list(100)
+    
+    for notif in notifications:
+        if isinstance(notif.get('timestamp'), str):
+            notif['timestamp'] = datetime.fromisoformat(notif['timestamp'])
+        if isinstance(notif.get('metadata'), str):
+            notif['metadata'] = json.loads(notif.get('metadata', '{}'))
+    
+    return notifications
+
+@api_router.patch("/notifications/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Mark notification as read."""
+    if current_user.role != 'admin':
+        raise ForbiddenException(detail="Admin access required")
+    
+    await db.notifications.update_one(
+        {"id": notification_id},
+        {"$set": {"read": 1}}
+    )
+    
+    return {"message": "Notification marked as read"}
+
+@api_router.post("/notifications/mark-all-read")
+async def mark_all_notifications_read(
+    category: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """Mark all notifications as read."""
+    if current_user.role != 'admin':
+        raise ForbiddenException(detail="Admin access required")
+    
+    query = {}
+    if category:
+        query["category"] = category
+    
+    await db.notifications.update_many(query, {"$set": {"read": 1}})
+    
+    return {"message": "All notifications marked as read"}
+
+# ============ Schedule Change Request Routes ============
+
+@api_router.post("/schedule-requests")
+async def create_schedule_request(
+    request_data: ScheduleChangeRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Create a schedule change request (Teacher only)."""
+    if current_user.role != 'teacher':
+        raise ForbiddenException(detail="Teacher access required")
+    
+    # Create notification for admin
+    message = f"{current_user.name} requests to change {request_data.day} Period {request_data.period}"
+    if request_data.current_subject:
+        message += f" from {request_data.current_subject} ({request_data.current_class})"
+    message += f" to {request_data.requested_subject} ({request_data.requested_class})"
+    message += f"\nReason: {request_data.reason}"
+    
+    notification = Notification(
+        category="requests",
+        title="Schedule Change Request",
+        message=message,
+        from_user_id=current_user.id,
+        from_user_name=current_user.name,
+        metadata={
+            "type": "schedule_change",
+            "day": request_data.day,
+            "period": request_data.period,
+            "current_subject": request_data.current_subject,
+            "current_class": request_data.current_class,
+            "requested_subject": request_data.requested_subject,
+            "requested_class": request_data.requested_class,
+            "reason": request_data.reason
+        }
+    )
+    
+    notif_doc = notification.model_dump()
+    notif_doc['timestamp'] = notif_doc['timestamp'].isoformat()
+    notif_doc['metadata'] = json.dumps(notif_doc.get('metadata', {}))
+    await db.notifications.insert_one(notif_doc)
+    
+    logger.info(f"Teacher {current_user.username} created schedule change request")
+    return {"message": "Schedule change request submitted successfully"}
 
 # Include the router
 app.include_router(api_router)

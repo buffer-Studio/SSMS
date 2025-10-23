@@ -1,200 +1,417 @@
-# School Scheduling Management System
+# School Scheduling Management System (SSMS)
 
-## Overview
-A minimalistic yet impressive web-based scheduling management system designed for high school exhibitions. The application allows administrators to manage class timetables in real-time while teachers can view their personalized schedules with instant update notifications.
+> A modern, feature-rich web application for managing school timetables with real-time updates, notifications, and comprehensive admin controls.
+
+[![React](https://img.shields.io/badge/React-19-61dafb?logo=react)](https://reactjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Python](https://img.shields.io/badge/Python-3.13-3776ab?logo=python)](https://www.python.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-38bdf8?logo=tailwind-css)](https://tailwindcss.com/)
+
+---
+
+## ✨ Features at a Glance
+
+🔐 **Secure Authentication** - JWT-based auth with password history tracking  
+📅 **Smart Scheduling** - Comprehensive timetable management with conflict detection  
+🔔 **Real-time Notifications** - Instant alerts for schedule and password changes  
+📝 **Change Tracking** - Complete audit trail with beautiful changelog UI  
+🎨 **Modern UI** - Responsive design with dark mode and smooth animations  
+🌐 **Network Ready** - Auto-detects local/network access for seamless deployment  
+👥 **Role-Based Access** - Separate admin and teacher interfaces  
+📊 **Data Export** - CSV export and QR code generation  
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Python 3.13+
+- Node.js 18+
+- npm or yarn
+
+### Backend Setup
+```bash
+cd SSMS/backend
+pip install -r requirements.txt
+uvicorn server:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Frontend Setup
+```bash
+cd SSMS/frontend
+npm install
+npm start
+```
+
+### Access the Application
+- **Local**: http://localhost:3000
+- **Network**: http://YOUR_IP:3000
+- **API Docs**: http://localhost:8000/docs
+
+---
 
 ## 🎯 Core Features
 
 ### For Administrators
-- **Complete Schedule Management**: Create, edit, and delete teacher schedules across 5 working days (Monday-Friday) and 8 periods per day
-- **Teacher Account Management**: Add and manage teacher accounts with secure authentication
-- **Break Period Configuration**: Toggle break periods between Period 3 and Period 4 (simulating half-yearly changes)
-- **Conflict Detection**: Automatically prevent double-booking and scheduling conflicts
-- **Real-time Update Tracking**: All schedule changes are logged with timestamps and admin attribution
+- ✅ Complete schedule management (5 days × 8 periods)
+- ✅ User account management with role assignment
+- ✅ Teacher designation system with locking
+- ✅ Break period configuration
+- ✅ Schedule change request approval
+- ✅ Real-time notifications
+- ✅ Change log tracking
+- ✅ CSV data export
+- ✅ Dark mode support
 
 ### For Teachers
-- **Personalized Timetable View**: Clean, organized display of weekly schedule
-- **Change Notifications**: Orange-highlighted cells indicate schedule modifications within the last 24 hours
-- **Change Log Panel**: View detailed history of recent schedule updates
-- **Manual Refresh**: Refresh button to check for latest updates (simulates real-time in exhibition demo)
-- **Dark Mode Support**: Toggle between light and dark themes
+- ✅ Personalized timetable view
+- ✅ Schedule change notifications
+- ✅ Changelog access
+- ✅ Password management
+- ✅ QR code for quick access
+- ✅ Schedule change requests
+- ✅ Auto-scroll to content
+- ✅ Mobile-responsive interface
 
-### Exhibition Features
-- **Exhibition Mode Toggle**: Special badge display for demonstration purposes
-- **QR Code Quick Login**: Mock QR-based authentication demo (shows concept for production)
-- **Clean, Professional UI**: Minimalistic design with smooth animations and transitions
-- **Responsive Layout**: Works seamlessly on desktop and mobile devices
+---
 
-## 🏗️ System Architecture
+## 🏗️ Architecture
 
 ### Tech Stack
 **Frontend:**
-- React 19.x - Modern UI framework
-- React Router - Client-side routing
-- Tailwind CSS - Utility-first styling
-- Shadcn/UI - Pre-built component library
-- Axios - HTTP client
+- React 19 with Hooks
+- Tailwind CSS + Shadcn/UI
+- React Router v6
+- Axios for API calls
+- Sonner for toasts
 
 **Backend:**
-- FastAPI - High-performance Python web framework
-- Motor - Async MongoDB driver
-- PyJWT - JWT token authentication
-- Passlib - Password hashing
-- Pydantic - Data validation
+- FastAPI (Python 3.13)
+- SQLite database (no setup required!)
+- JWT authentication
+- bcrypt password hashing
+- slowapi rate limiting
+- Pydantic validation
 
 **Database:**
-- MongoDB - NoSQL document database
+- SQLite with automatic migrations
+- No external database server needed
+- Built-in backup support
 
 ### Architecture Flow
 ```
 ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
-│   React     │  HTTP   │   FastAPI   │  Async  │   MongoDB   │
-│  Frontend   ├────────>│   Backend   ├────────>│   Database  │
-│  (Port 3000)│ <──────┤  (Port 8000)│ <──────┤ (Port 27017)│
-└─────────────┘  JSON   └─────────────┘  Motor  └─────────────┘
+│   React     │  HTTP   │   FastAPI   │  SQLite │   Database  │
+│  Frontend   ├────────>│   Backend   ├────────>│  (Built-in) │
+│  (Port 3000)│ <──────┤  (Port 8000)│ <──────┤ (ssms_db)   │
+└─────────────┘  JSON   └─────────────┘  Sync   └─────────────┘
        │
        │ JWT Authentication
-       │ State Management
-       │ Routing
+       │ Auto-detection (Local/Network)
+       │ React Router
        v
 ┌─────────────────────────────────────┐
 │  User Roles:                         │
 │  - Admin: Full CRUD operations       │
-│  - Teacher: Read-only schedule view  │
+│  - Teacher: Read + Request changes   │
 └─────────────────────────────────────┘
 ```
+
+---
 
 ## 📦 Installation & Setup
 
 ### Prerequisites
-- Node.js 16+ and npm/bun
-- Python 3.11+
-- Docker (for MongoDB)
+- Node.js 18+ and npm
+- Python 3.13+
+- No external database needed! (SQLite built-in)
 
 ### Backend Setup
 
-1. **Start MongoDB using Docker:**
+1. **Navigate to backend directory:**
 ```bash
-docker run -d --name mongodb -p 27017:27017 -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=password mongo:latest
+cd SSMS/backend
 ```
 
-2. **Navigate to backend directory:**
-```bash
-cd backend
-```
-
-3. **Install Python dependencies:**
+2. **Install Python dependencies:**
 ```bash
 pip install -r requirements.txt
 ```
 
-4. **Configure environment variables:**
-The `.env` file should contain:
-```
-MONGO_URL="mongodb://admin:password@localhost:27017/school_schedule_db?authSource=admin"
-DB_NAME="school_schedule_db"
+3. **Configure environment variables:**
+Create `.env` file (or use .env.example):
+```env
+JWT_SECRET_KEY="your-secret-key-here"
+JWT_ALGORITHM="HS256"
+JWT_EXPIRATION_MINUTES=1440
 CORS_ORIGINS="*"
-JWT_SECRET_KEY="school-schedule-secret-key-2025"
+DEBUG=True
 ```
 
-5. **Start the backend server:**
+4. **Start the backend server:**
 ```bash
-uvicorn server:app --host 127.0.0.1 --port 8000
+uvicorn server:app --reload --host 0.0.0.0 --port 8000
 ```
 
-The backend will be available at `http://127.0.0.1:8000`
-API documentation: `http://127.0.0.1:8000/docs`
-
+**Backend will be accessible at:**
+- Local: http://127.0.0.1:8000
+- Network: http://YOUR_IP:8000
+- API Docs: http://127.0.0.1:8000/docs
 ### Frontend Setup
 
 1. **Navigate to frontend directory:**
 ```bash
-cd frontend
+cd SSMS/frontend
 ```
 
 2. **Install dependencies:**
 ```bash
 npm install
-# or if you prefer bun:
-bun install
 ```
 
-3. **Start the frontend development server:**
+3. **Configure environment (optional):**
+Create `.env` file:
+```env
+REACT_APP_BACKEND_URL=auto
+REACT_APP_NETWORK_IP=YOUR_IP_HERE
+WDS_SOCKET_PORT=443
+```
+
+4. **Start the development server:**
 ```bash
 npm start
-# or:
-bun start
 ```
 
-The application will open at `http://localhost:3000`
+**Frontend will be accessible at:**
+- Local: http://localhost:3000
+- Network: http://YOUR_IP:3000
 
-### Quick Start (All-in-One)
+---
 
-Run these commands in separate terminal windows:
+## 🎮 Usage
 
-**Terminal 1 - MongoDB:**
+### Default Admin Credentials
+- **Username**: `admin123`
+- **Password**: Set during first login or database initialization
+
+### Creating Your First Schedule
+
+1. **Login as Admin**
+2. Navigate to "Users" tab
+3. Add teacher accounts
+4. Go to "Schedules" tab
+5. Click on any cell to assign a schedule
+6. Teachers will see their schedules in real-time!
+
+### Accessing from Other Devices
+
+The application automatically detects whether you're accessing locally or over the network:
+
+- **On your computer**: Use `http://localhost:3000`
+- **On your phone/tablet**: Use `http://YOUR_COMPUTER_IP:3000`
+
+The backend URL is automatically configured based on how you access the frontend!
+
+
+## 📸 Screenshots
+
+### Admin Dashboard
+- Comprehensive schedule management
+- User management with designations
+- Change request approval
+- Notification center
+
+### Teacher Dashboard  
+- Personal timetable view
+- Beautiful changelog panel
+- QR code access
+- Password management
+
+### Mobile Experience
+- Fully responsive design
+- Touch-optimized interface
+- Auto-scroll to content
+- Smooth animations
+
+---
+
+## 🔒 Security Features
+
+- ✅ **JWT Authentication** - Secure token-based auth
+- ✅ **Password Hashing** - bcrypt with salt
+- ✅ **Password History** - Prevents reuse of last 5 passwords
+- ✅ **Rate Limiting** - Protection against brute force
+- ✅ **CORS Configuration** - Controlled cross-origin access
+- ✅ **Input Validation** - Pydantic models
+- ✅ **SQL Injection Prevention** - Parameterized queries
+
+---
+
+## 📁 Project Structure
+
+```
+SSMS/
+├── backend/
+│   ├── server.py              # Main FastAPI app
+│   ├── database.py            # SQLite adapter with migrations
+│   ├── config.py              # Configuration management
+│   ├── exceptions.py          # Custom exception handlers
+│   ├── logging_config.py      # Logging setup
+│   ├── requirements.txt       # Python dependencies
+│   ├── .env.example           # Environment template
+│   └── ssms_database.db       # SQLite database (auto-created)
+│
+├── frontend/
+│   ├── src/
+│   │   ├── App.js             # Main React component
+│   │   ├── config/
+│   │   │   └── api.js         # Smart backend URL detection
+│   │   ├── pages/
+│   │   │   ├── HomePage.js
+│   │   │   ├── LoginPage.js
+│   │   │   ├── AdminDashboard.js
+│   │   │   └── TeacherDashboard.js
+│   │   └── components/
+│   │       ├── TimetableGrid.js
+│   │       ├── ChangeLogPanel.js
+│   │       ├── QRCodeModal.js
+│   │       ├── ChangePasswordModal.js
+│   │       ├── NotificationPanel.js
+│   │       ├── ScheduleChangeRequestModal.js
+│   │       └── ui/            # Shadcn components
+│   ├── package.json
+│   └── .env                   # Environment config
+│
+├── FEATURES.md                # Complete feature list
+├── README.md                  # This file
+└── .gitignore                 # Git ignore rules
+```
+
+---
+
+## 🛠️ API Endpoints
+
+### Authentication
+- `POST /api/auth/login` - User login
+- `POST /api/auth/change-password` - Change password
+
+### Users
+- `GET /api/users` - List all users (Admin)
+- `POST /api/users` - Create user (Admin)
+- `DELETE /api/users/{id}` - Delete user (Admin)
+- `PATCH /api/users/{id}/designation` - Update designation (Admin)
+
+### Schedules
+- `GET /api/schedules` - Get all schedules
+- `POST /api/schedules` - Create/update schedule (Admin)
+- `DELETE /api/schedules/{id}` - Delete schedule (Admin)
+- `GET /api/schedules/export` - Export to CSV
+
+### Notifications
+- `GET /api/notifications` - Get notifications
+- `PATCH /api/notifications/{id}/read` - Mark as read
+- `DELETE /api/notifications/{id}` - Delete notification
+
+### Changelogs
+- `GET /api/changelogs` - Get change history
+
+### Settings
+- `GET /api/settings/break-period` - Get break config
+- `PUT /api/settings/break-period` - Update break config (Admin)
+
+Full API documentation: http://localhost:8000/docs
+
+---
+
+## � Troubleshooting
+
+### Backend won't start
 ```bash
-docker run -d --name mongodb -p 27017:27017 -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=password mongo:latest
+# Check if port 8000 is in use
+netstat -ano | findstr :8000
+
+# Kill the process if needed
+taskkill /F /PID <PID>
 ```
 
-**Terminal 2 - Backend:**
-```bash
-cd backend
-pip install -r requirements.txt
-uvicorn server:app --host 127.0.0.1 --port 8000
-```
+### Frontend can't connect
+- Check `.env` file has `REACT_APP_BACKEND_URL=auto`
+- Verify backend is running on port 8000
+- Check network IP is correct
 
-**Terminal 3 - Frontend:**
-```bash
-cd frontend
-bun install
-bun start
-```
+### Database errors
+- Delete `ssms_database.db` and restart backend
+- Database will be recreated automatically
+- Default admin account will be created
 
-### Verification
+### Network access not working
+- Ensure backend runs with `--host 0.0.0.0`
+- Check firewall settings
+- Verify IP address in `.env` file
 
-1. **Check MongoDB:** `docker ps | grep mongodb`
-2. **Check Backend:** Visit `http://127.0.0.1:8000/docs`
-3. **Check Frontend:** Visit `http://localhost:3000`
+---
 
-## 👥 Demo Accounts
+## 📚 Documentation
 
-### Administrator Account
-```
-Username: admin123
-Password: password123
-```
+- **API Documentation**: http://localhost:8000/docs (Swagger UI)
+- **Alternative API Docs**: http://localhost:8000/redoc (ReDoc)
+- **Features List**: See [FEATURES.md](FEATURES.md)
 
-### Teacher Accounts
-```
-Teacher 1: t_sagnik / pass123 (Sagnik Sir)
-Teacher 2: t_nadeem / pass123 (Nadeem Sir)
-Teacher 3: t_prinshu / pass123 (Prinshu Sir)
-Teacher 4: t_abhishek / pass123 (Abhishek Sir)
-```
+---
 
-## 🎭 Exhibition Mode
+## 🤝 Contributing
 
-Toggle exhibition mode from the homepage to showcase the system with:
-- Floating badge indicating demo mode
-- QR code login demonstration
-- Optimized for presentation on large screens
+This is a demonstration project. For improvements:
 
-## 🚀 Usage Guide
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
 
-### Admin Workflow
-1. Login with admin credentials
-2. Navigate to "Schedules" tab
-3. Select a teacher from dropdown
-4. Click empty cells to add schedule entries
-5. Click existing entries to edit or delete
-6. Switch to "Teachers" tab to manage accounts
-7. Adjust break period in "Settings" tab
 
-### Teacher Workflow
-1. Login with teacher credentials
-2. View personalized timetable automatically
-3. Orange highlights show recent changes
+## 📄 License
+
+This project is developed for educational and demonstration purposes.
+
+---
+
+## 👏 Acknowledgments
+
+Built with modern web technologies:
+- **FastAPI** - High-performance Python web framework
+- **React** - Powerful UI library
+- **Tailwind CSS** - Utility-first CSS framework
+- **Shadcn/UI** - Beautiful component library
+- **SQLite** - Reliable embedded database
+
+---
+
+## � Support
+
+For issues or questions:
+- Check the [FEATURES.md](FEATURES.md) documentation
+- Review the API docs at http://localhost:8000/docs
+- Consult the troubleshooting section above
+
+---
+
+## 🔮 Roadmap
+
+See [FEATURES.md](FEATURES.md) for:
+- ✅ Completed features
+- 🚧 Planned improvements
+- 💡 Future enhancement ideas
+
+---
+
+**Last Updated**: October 23, 2025  
+**Version**: 2.0.0  
+**Status**: Production Ready ✨
+
+---
+
+Made with ❤️ for modern school management
+
 4. Check change log panel for details
 5. Use refresh button to get latest updates
 
