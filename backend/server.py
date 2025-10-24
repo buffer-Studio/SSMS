@@ -2,7 +2,8 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
 import os
 import logging
 from pathlib import Path
@@ -16,10 +17,56 @@ from passlib.context import CryptContext
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# SQLite connection
+database_url = os.environ['DATABASE_URL']
+engine = create_async_engine(database_url, echo=True)
+async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+async def create_tables():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+class Base(DeclarativeBase):
+    pass
+
+class UserTable(Base):
+    __tablename__ = 'users'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    username = Column(String, unique=True, nullable=False)
+    name = Column(String, nullable=False)
+    role = Column(String, nullable=False)
+    password_hash = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+class ScheduleTable(Base):
+    __tablename__ = 'schedules'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    teacher_id = Column(String, nullable=False)
+    teacher_name = Column(String, nullable=False)
+    day = Column(String, nullable=False)
+    period = Column(Integer, nullable=False)
+    subject = Column(String, nullable=False)
+    class_name = Column(String, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+class SettingsTable(Base):
+    __tablename__ = 'settings'
+    id = Column(String, primary_key=True, default="break_settings")
+    break_after_period = Column(Integer, default=3)
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+class ChangelogTable(Base):
+    __tablename__ = 'changelogs'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    schedule_id = Column(String, nullable=False)
+    teacher_id = Column(String, nullable=False)
+    teacher_name = Column(String, nullable=False)
+    day = Column(String, nullable=False)
+    period = Column(Integer, nullable=False)
+    old_value = Column(String, nullable=False)
+    new_value = Column(String, nullable=False)
+    changed_by = Column(String, nullable=False)
+    timestamp = Column(DateTime, default=datetime.now(timezone.utc))
 
 # Security setup
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -114,7 +161,11 @@ def create_token(user_id: str, username: str, role: str) -> str:
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_db():
+    async with async_session() as session:
+        yield session
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), session: AsyncSession = Depends(get_db)):
     try:
         token = credentials.credentials
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -122,14 +173,13 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid token")
 
-        user_doc = await db.users.find_one({"id": user_id}, {"_id": 0})
-        if not user_doc:
+        stmt = select(UserTable).where(UserTable.id == user_id)
+        result = await session.execute(stmt)
+        user = result.scalar_one_or_none()
+        if not user:
             raise HTTPException(status_code=401, detail="User not found")
 
-        if isinstance(user_doc.get('created_at'), str):
-            user_doc['created_at'] = datetime.fromisoformat(user_doc['created_at'])
-
-        return User(**user_doc)
+        return User(id=user.id, username=user.username, name=user.name, role=user.role, created_at=user.created_at)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except Exception as e:
@@ -137,19 +187,107 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
 # ============ Initialize Demo Data ============
 
-async def init_demo_data():
+@app.on_event("startup")
+async def startup_event():
+    await create_tables()
+    async with async_session() as session:
+        await init_demo_data(session)
+
+# ============ Auth Routes ============
+
+@api_router.post("/auth/login", response_model=TokenResponse)
+async def login(credentials: UserLogin, session: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select
+
+    stmt = select(UserTable).where(UserTable.username == credentials.username)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user or not verify_password(credentials.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    user_obj = User(id=user.id, username=user.username, name=user.name, role=user.role, created_at=user.created_at)
+    token = create_token(user.id, user.username, user.role)
+
+    return TokenResponse(token=token, user=user_obj)
+
+@api_router.get("/auth/verify")
+async def verify_token(current_user: User = Depends(get_current_user)):
+    return {"valid": True, "user": current_user}
+
+# ============ User Routes ============
+
+@api_router.get("/users", response_model=List[User])
+async def get_users(current_user: User = Depends(get_current_user)):
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    stmt = select(UserTable).where(UserTable.role != 'admin')
+    result = await session.execute(stmt)
+    users = result.scalars().all()
+    return [User(id=user.id, username=user.username, name=user.name, role=user.role, created_at=user.created_at) for user in users]
+
+@api_router.post("/users", response_model=User)
+async def create_user(user_data: UserCreate, current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)):
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    from sqlalchemy import select
+    # Check if username exists
+    stmt = select(UserTable).where(UserTable.username == user_data.username)
+    result = await session.execute(stmt)
+    exists = result.scalar_one_or_none()
+    if exists:
+        raise HTTPException(status_code=400, detail="Username already exists")
+
+    user = UserTable(
+        username=user_data.username,
+        name=user_data.name,
+        role=user_data.role,
+        password_hash=hash_password(user_data.password)
+    )
+
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return User(id=user.id, username=user.username, name=user.name, role=user.role, created_at=user.created_at)
+
+@api_router.delete("/users/{user_id}")
+async def delete_user(user_id: str, current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)):
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    from sqlalchemy import select
+    stmt = select(UserTable).where(UserTable.id == user_id)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Delete associated schedules
+    from sqlalchemy import delete
+    await session.execute(delete(ScheduleTable).where(ScheduleTable.teacher_id == user_id))
+    await session.delete(user)
+    await session.commit()
+    return {"message": "User deleted successfully"}
+
+async def init_demo_data(session: AsyncSession):
+    from sqlalchemy import select
+
     # Check if admin exists
-    admin_exists = await db.users.find_one({"username": "admin123"})
-    if not admin_exists:
-        admin_user = User(
+    stmt = select(UserTable).where(UserTable.username == "admin123")
+    result = await session.execute(stmt)
+    admin = result.scalar_one_or_none()
+    if not admin:
+        admin_user = UserTable(
             username="admin123",
             name="Administrator",
-            role="admin"
+            role="admin",
+            password_hash=hash_password("password123")
         )
-        admin_doc = admin_user.model_dump()
-        admin_doc['created_at'] = admin_doc['created_at'].isoformat()
-        admin_doc['password_hash'] = hash_password("password123")
-        await db.users.insert_one(admin_doc)
+        session.add(admin_user)
+        await session.commit()
+        await session.refresh(admin_user)
         logger.info("Admin user created")
 
     # Create demo teachers
@@ -162,42 +300,45 @@ async def init_demo_data():
 
     teacher_ids = {}
     for teacher in demo_teachers:
-        exists = await db.users.find_one({"username": teacher["username"]})
+        stmt = select(UserTable).where(UserTable.username == teacher["username"])
+        result = await session.execute(stmt)
+        exists = result.scalar_one_or_none()
         if not exists:
-            user = User(
+            user = UserTable(
                 username=teacher["username"],
                 name=teacher["name"],
-                role="teacher"
+                role="teacher",
+                password_hash=hash_password(teacher["password"])
             )
-            user_doc = user.model_dump()
-            user_doc['created_at'] = user_doc['created_at'].isoformat()
-            user_doc['password_hash'] = hash_password(teacher["password"])
-            await db.users.insert_one(user_doc)
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
             teacher_ids[teacher["username"]] = user.id
             logger.info(f"Teacher {teacher['name']} created")
         else:
-            teacher_ids[teacher["username"]] = exists["id"]
+            teacher_ids[teacher["username"]] = exists.id
 
     # Initialize settings
-    settings_exists = await db.settings.find_one({"id": "break_settings"})
-    if not settings_exists:
-        settings = Settings()
-        settings_doc = settings.model_dump()
-        settings_doc['updated_at'] = settings_doc['updated_at'].isoformat()
-        await db.settings.insert_one(settings_doc)
+    stmt = select(SettingsTable).where(SettingsTable.id == "break_settings")
+    result = await session.execute(stmt)
+    settings = result.scalar_one_or_none()
+    if not settings:
+        settings = SettingsTable()
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
         logger.info("Settings initialized")
 
     # Load demo schedules if none exist
-    schedule_count = await db.schedules.count_documents({})
-    if schedule_count == 0:
-        await load_demo_schedules()
+    stmt = select(ScheduleTable).limit(1)
+    result = await session.execute(stmt)
+    schedule_exists = result.scalar_one_or_none()
+    if not schedule_exists:
+        await load_demo_schedules(session)
         logger.info("Demo schedules loaded")
 
-async def load_demo_schedules():
+async def load_demo_schedules(session: AsyncSession, teacher_ids: dict):
     """Load comprehensive demo timetable data for all teachers"""
-
-    # Get all teachers
-    teachers = await db.users.find({"role": "teacher"}, {"_id": 0}).to_list(100)
 
     # Demo schedule templates - realistic school subjects
     demo_schedules = {
@@ -309,21 +450,20 @@ async def load_demo_schedules():
     }
 
     # Create schedules for each teacher
-    for teacher in teachers:
-        teacher_name = teacher["name"]
-        if teacher_name in demo_schedules:
-            for schedule_data in demo_schedules[teacher_name]:
-                schedule = ScheduleEntry(
-                    teacher_id=teacher["id"],
+    for teacher_name, schedules in demo_schedules.items():
+        if teacher_name in teacher_ids:
+            teacher_id = teacher_ids[teacher_name]
+            for schedule_data in schedules:
+                schedule = ScheduleTable(
+                    teacher_id=teacher_id,
                     teacher_name=teacher_name,
                     day=schedule_data["day"],
                     period=schedule_data["period"],
                     subject=schedule_data["subject"],
                     class_name=schedule_data["class_name"]
                 )
-                schedule_doc = schedule.model_dump()
-                schedule_doc['updated_at'] = schedule_doc['updated_at'].isoformat()
-                await db.schedules.insert_one(schedule_doc)
+                session.add(schedule)
+    await session.commit()
 
 @app.on_event("startup")
 async def startup_event():
@@ -332,19 +472,20 @@ async def startup_event():
 # ============ Auth Routes ============
 
 @api_router.post("/auth/login", response_model=TokenResponse)
-async def login(credentials: UserLogin):
-    user_doc = await db.users.find_one({"username": credentials.username}, {"_id": 0})
+async def login(credentials: UserLogin, session: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select
 
-    if not user_doc or not verify_password(credentials.password, user_doc.get('password_hash', '')):
+    stmt = select(UserTable).where(UserTable.username == credentials.username)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user or not verify_password(credentials.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    if isinstance(user_doc.get('created_at'), str):
-        user_doc['created_at'] = datetime.fromisoformat(user_doc['created_at'])
-
-    user = User(**{k: v for k, v in user_doc.items() if k != 'password_hash'})
+    user_obj = User(id=user.id, username=user.username, name=user.name, role=user.role, created_at=user.created_at)
     token = create_token(user.id, user.username, user.role)
 
-    return TokenResponse(token=token, user=user)
+    return TokenResponse(token=token, user=user_obj)
 
 @api_router.get("/auth/verify")
 async def verify_token(current_user: User = Depends(get_current_user)):
@@ -585,6 +726,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+@app.on_event("startup")
+async def startup_event():
+    await create_tables()
+    await init_demo_data()
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    await engine.dispose()

@@ -37,21 +37,21 @@ A minimalistic yet impressive web-based scheduling management system designed fo
 
 **Backend:**
 - FastAPI - High-performance Python web framework
-- Motor - Async MongoDB driver
+- SQLAlchemy - SQL toolkit and ORM
 - PyJWT - JWT token authentication
 - Passlib - Password hashing
 - Pydantic - Data validation
 
 **Database:**
-- MongoDB - NoSQL document database
+- SQLite - Lightweight SQL database
 
 ### Architecture Flow
 ```
 ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
-│   React     │  HTTP   │   FastAPI   │  Async  │   MongoDB   │
+│   React     │  HTTP   │   FastAPI   │  Async  │   SQLite    │
 │  Frontend   ├────────>│   Backend   ├────────>│   Database  │
-│  (Port 3000)│ <──────┤  (Port 8000)│ <──────┤ (Port 27017)│
-└─────────────┘  JSON   └─────────────┘  Motor  └─────────────┘
+│ (Port 4040) │ <──────┤ (Port 8080) │ <──────┤ (File-based) │
+└─────────────┘  JSON   └─────────────┘  SQLAlchemy └─────────────┘
        │
        │ JWT Authentication
        │ State Management
@@ -69,41 +69,34 @@ A minimalistic yet impressive web-based scheduling management system designed fo
 ### Prerequisites
 - Node.js 16+ and npm/bun
 - Python 3.11+
-- Docker (for MongoDB)
 
 ### Backend Setup
 
-1. **Start MongoDB using Docker:**
-```bash
-docker run -d --name mongodb -p 27017:27017 -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=password mongo:latest
-```
-
-2. **Navigate to backend directory:**
+1. **Navigate to backend directory:**
 ```bash
 cd backend
 ```
 
-3. **Install Python dependencies:**
+2. **Install Python dependencies:**
 ```bash
 pip install -r requirements.txt
 ```
 
-4. **Configure environment variables:**
+3. **Configure environment variables:**
 The `.env` file should contain:
 ```
-MONGO_URL="mongodb://admin:password@localhost:27017/school_schedule_db?authSource=admin"
-DB_NAME="school_schedule_db"
+DATABASE_URL="sqlite:///school_schedule.db"
 CORS_ORIGINS="*"
 JWT_SECRET_KEY="school-schedule-secret-key-2025"
 ```
 
-5. **Start the backend server:**
+4. **Start the backend server:**
 ```bash
-uvicorn server:app --host 127.0.0.1 --port 8000
+uvicorn server:app --host 127.0.0.1 --port 8080
 ```
 
-The backend will be available at `http://127.0.0.1:8000`
-API documentation: `http://127.0.0.1:8000/docs`
+The backend will be available at `http://127.0.0.1:8080`
+API documentation: `http://127.0.0.1:8080/docs`
 
 ### Frontend Setup
 
@@ -126,25 +119,20 @@ npm start
 bun start
 ```
 
-The application will open at `http://localhost:3000`
+The application will open at `http://localhost:4040`
 
 ### Quick Start (All-in-One)
 
 Run these commands in separate terminal windows:
 
-**Terminal 1 - MongoDB:**
-```bash
-docker run -d --name mongodb -p 27017:27017 -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=password mongo:latest
-```
-
-**Terminal 2 - Backend:**
+**Terminal 1 - Backend:**
 ```bash
 cd backend
 pip install -r requirements.txt
-uvicorn server:app --host 127.0.0.1 --port 8000
+uvicorn server:app --host 127.0.0.1 --port 8080
 ```
 
-**Terminal 3 - Frontend:**
+**Terminal 2 - Frontend:**
 ```bash
 cd frontend
 bun install
@@ -153,9 +141,8 @@ bun start
 
 ### Verification
 
-1. **Check MongoDB:** `docker ps | grep mongodb`
-2. **Check Backend:** Visit `http://127.0.0.1:8000/docs`
-3. **Check Frontend:** Visit `http://localhost:3000`
+1. **Check Backend:** Visit `http://127.0.0.1:8080/docs`
+2. **Check Frontend:** Visit `http://localhost:4040`
 
 ## 👥 Demo Accounts
 
@@ -248,38 +235,35 @@ Toggle exhibition mode from the homepage to showcase the system with:
 ## 🔧 Troubleshooting
 
 **Backend won't start:**
-- Check if MongoDB Docker container is running: `docker ps | grep mongodb`
-- Verify port 8000 is available
-- Check MongoDB connection string in `.env` file
-- Ensure Docker is installed and running
+- Verify port 8080 is available
+- Check SQLite database file path in `.env` file
+- Ensure all Python dependencies are installed
 
-**MongoDB connection issues:**
-- Restart MongoDB container: `docker restart mongodb`
-- Check container logs: `docker logs mongodb`
-- Verify authentication credentials in connection string
+**Database connection issues:**
+- Check if the SQLite database file exists in the backend directory
+- Verify DATABASE_URL in `.env` file is correct
+- Restart the backend server
 
 **Frontend won't connect:**
-- Ensure backend is running on port 8000
+- Ensure backend is running on port 8080
 - Check browser console for CORS errors
 - Verify backend API endpoints are accessible
-- Check frontend `.env` file has correct `REACT_APP_BACKEND_URL=http://127.0.0.1:8000`
+- Check frontend `.env` file has correct `REACT_APP_BACKEND_URL=http://127.0.0.1:8080`
 - Restart frontend after changing `.env` file
 
 **Login fails:**
-- Verify MongoDB is running and accessible
 - Check backend logs for initialization messages
 - Ensure demo users were created during startup
 - Try restarting the backend server
 
 **Port conflicts:**
-- Backend uses port 8000 (not 8001)
-- Frontend uses port 3000
-- MongoDB uses port 27017
+- Backend uses port 8080
+- Frontend uses port 4040
 
 **Port already in use error:**
 - Kill existing uvicorn processes: `pkill -f uvicorn`
 - Or find and kill specific process: `ps aux | grep uvicorn` then `kill [PID]`
-- Check if port is free: `ss -tlnp | grep 8000`
+- Check if port is free: `ss -tlnp | grep 8080`
 
 ## 📄 API Endpoints
 
