@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy import Column, String, Integer, DateTime, select, delete
 import os
 import logging
 from pathlib import Path
@@ -197,8 +198,6 @@ async def startup_event():
 
 @api_router.post("/auth/login", response_model=TokenResponse)
 async def login(credentials: UserLogin, session: AsyncSession = Depends(get_db)):
-    from sqlalchemy import select
-
     stmt = select(UserTable).where(UserTable.username == credentials.username)
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
@@ -218,7 +217,7 @@ async def verify_token(current_user: User = Depends(get_current_user)):
 # ============ User Routes ============
 
 @api_router.get("/users", response_model=List[User])
-async def get_users(current_user: User = Depends(get_current_user)):
+async def get_users(current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)):
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Admin access required")
 
@@ -232,7 +231,6 @@ async def create_user(user_data: UserCreate, current_user: User = Depends(get_cu
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    from sqlalchemy import select
     # Check if username exists
     stmt = select(UserTable).where(UserTable.username == user_data.username)
     result = await session.execute(stmt)
@@ -257,7 +255,6 @@ async def delete_user(user_id: str, current_user: User = Depends(get_current_use
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    from sqlalchemy import select
     stmt = select(UserTable).where(UserTable.id == user_id)
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
@@ -265,15 +262,236 @@ async def delete_user(user_id: str, current_user: User = Depends(get_current_use
         raise HTTPException(status_code=404, detail="User not found")
 
     # Delete associated schedules
-    from sqlalchemy import delete
     await session.execute(delete(ScheduleTable).where(ScheduleTable.teacher_id == user_id))
     await session.delete(user)
     await session.commit()
     return {"message": "User deleted successfully"}
 
-async def init_demo_data(session: AsyncSession):
-    from sqlalchemy import select
+# ============ Schedule Routes ============
 
+@api_router.get("/schedules", response_model=List[ScheduleEntry])
+async def get_schedules(teacher_id: Optional[str] = None, current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)):
+    query = select(ScheduleTable)
+    if current_user.role == 'teacher':
+        query = query.where(ScheduleTable.teacher_id == current_user.id)
+    elif teacher_id:
+        query = query.where(ScheduleTable.teacher_id == teacher_id)
+
+    result = await session.execute(query)
+    schedules = result.scalars().all()
+    return [ScheduleEntry(
+        id=s.id,
+        teacher_id=s.teacher_id,
+        teacher_name=s.teacher_name,
+        day=s.day,
+        period=s.period,
+        subject=s.subject,
+        class_name=s.class_name,
+        updated_at=s.updated_at
+    ) for s in schedules]
+
+@api_router.post("/schedules", response_model=ScheduleEntry)
+async def create_schedule(schedule_data: ScheduleCreate, current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)):
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    # Check for conflicts
+    stmt = select(ScheduleTable).where(
+        ScheduleTable.day == schedule_data.day,
+        ScheduleTable.period == schedule_data.period,
+        ScheduleTable.class_name == schedule_data.class_name
+    )
+    result = await session.execute(stmt)
+    conflict = result.scalar_one_or_none()
+
+    if conflict:
+        raise HTTPException(status_code=400, detail="Schedule conflict: This class already has a lesson at this time")
+
+    schedule = ScheduleTable(**schedule_data.model_dump())
+    session.add(schedule)
+    await session.commit()
+    await session.refresh(schedule)
+    return ScheduleEntry(
+        id=schedule.id,
+        teacher_id=schedule.teacher_id,
+        teacher_name=schedule.teacher_name,
+        day=schedule.day,
+        period=schedule.period,
+        subject=schedule.subject,
+        class_name=schedule.class_name,
+        updated_at=schedule.updated_at
+    )
+
+@api_router.put("/schedules/{schedule_id}", response_model=ScheduleEntry)
+async def update_schedule(schedule_id: str, update_data: ScheduleUpdate, current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)):
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    stmt = select(ScheduleTable).where(ScheduleTable.id == schedule_id)
+    result = await session.execute(stmt)
+    existing = result.scalar_one_or_none()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    # Log the change
+    changes = []
+    if update_data.subject and update_data.subject != existing.subject:
+        changes.append(f"Subject: {existing.subject} → {update_data.subject}")
+    if update_data.class_name and update_data.class_name != existing.class_name:
+        changes.append(f"Class: {existing.class_name} → {update_data.class_name}")
+
+    if changes:
+        changelog = ChangelogTable(
+            schedule_id=schedule_id,
+            teacher_id=existing.teacher_id,
+            teacher_name=existing.teacher_name,
+            day=existing.day,
+            period=existing.period,
+            old_value=existing.subject + ' - ' + existing.class_name,
+            new_value=(update_data.subject or existing.subject) + ' - ' + (update_data.class_name or existing.class_name),
+            changed_by=current_user.name
+        )
+        session.add(changelog)
+
+    # Update
+    if update_data.subject:
+        existing.subject = update_data.subject
+    if update_data.class_name:
+        existing.class_name = update_data.class_name
+    existing.updated_at = datetime.now(timezone.utc)
+
+    await session.commit()
+    return ScheduleEntry(
+        id=existing.id,
+        teacher_id=existing.teacher_id,
+        teacher_name=existing.teacher_name,
+        day=existing.day,
+        period=existing.period,
+        subject=existing.subject,
+        class_name=existing.class_name,
+        updated_at=existing.updated_at
+    )
+
+@api_router.delete("/schedules/{schedule_id}")
+async def delete_schedule(schedule_id: str, current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)):
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    stmt = select(ScheduleTable).where(ScheduleTable.id == schedule_id)
+    result = await session.execute(stmt)
+    schedule = result.scalar_one_or_none()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    await session.delete(schedule)
+    await session.commit()
+    return {"message": "Schedule deleted successfully"}
+
+# ============ Settings Routes ============
+
+@api_router.get("/settings/break-period")
+async def get_break_settings(session: AsyncSession = Depends(get_db)):
+    stmt = select(SettingsTable).where(SettingsTable.id == "break_settings")
+    result = await session.execute(stmt)
+    settings = result.scalar_one_or_none()
+    if not settings:
+        settings = SettingsTable()
+        session.add(settings)
+        await session.commit()
+        await session.refresh(settings)
+
+    return Settings(
+        id=settings.id,
+        break_after_period=settings.break_after_period,
+        updated_at=settings.updated_at
+    )
+
+@api_router.put("/settings/break-period")
+async def update_break_settings(break_after: int, current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)):
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    if break_after not in [3, 4]:
+        raise HTTPException(status_code=400, detail="Break can only be after period 3 or 4")
+
+    stmt = select(SettingsTable).where(SettingsTable.id == "break_settings")
+    result = await session.execute(stmt)
+    settings = result.scalar_one_or_none()
+    if settings:
+        settings.break_after_period = break_after
+        settings.updated_at = datetime.now(timezone.utc)
+    else:
+        settings = SettingsTable(break_after_period=break_after)
+        session.add(settings)
+
+    await session.commit()
+    await session.refresh(settings)
+    return {"break_after_period": break_after}
+
+# ============ Changelog Routes ============
+
+@api_router.get("/changelogs", response_model=List[ChangeLog])
+async def get_changelogs(teacher_id: Optional[str] = None, current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)):
+    query = select(ChangelogTable)
+    if current_user.role == 'teacher':
+        query = query.where(ChangelogTable.teacher_id == current_user.id)
+    elif teacher_id:
+        query = query.where(ChangelogTable.teacher_id == teacher_id)
+
+    query = query.order_by(ChangelogTable.timestamp.desc())
+    result = await session.execute(query)
+    changelogs = result.scalars().all()
+    return [ChangeLog(
+        id=log.id,
+        schedule_id=log.schedule_id,
+        teacher_id=log.teacher_id,
+        teacher_name=log.teacher_name,
+        day=log.day,
+        period=log.period,
+        old_value=log.old_value,
+        new_value=log.new_value,
+        changed_by=log.changed_by,
+        timestamp=log.timestamp
+    ) for log in changelogs]
+
+# ============ Demo Data Routes ============
+
+@api_router.post("/demo/load-schedules")
+async def load_demo_schedules_endpoint(current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)):
+    """Load comprehensive demo timetable data for all teachers (Admin only)"""
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    # Clear existing schedules
+    await session.execute(delete(ScheduleTable))
+    await session.execute(delete(ChangelogTable))
+
+    # Load demo data
+    teacher_ids = {}
+    stmt = select(UserTable).where(UserTable.role == "teacher")
+    result = await session.execute(stmt)
+    teachers = result.scalars().all()
+    for teacher in teachers:
+        teacher_ids[teacher.name] = teacher.id
+
+    await load_demo_schedules(session, teacher_ids)
+    await session.commit()
+
+    return {"message": "Demo schedules loaded successfully", "status": "success"}
+
+@api_router.post("/demo/clear-schedules")
+async def clear_all_schedules(current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db)):
+    """Clear all schedules and changelogs (Admin only)"""
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    await session.execute(delete(ScheduleTable))
+    await session.execute(delete(ChangelogTable))
+    await session.commit()
+
+    return {"message": "All schedules cleared successfully", "status": "success"}
+
+async def init_demo_data(session: AsyncSession):
     # Check if admin exists
     stmt = select(UserTable).where(UserTable.username == "admin123")
     result = await session.execute(stmt)
@@ -313,10 +531,10 @@ async def init_demo_data(session: AsyncSession):
             session.add(user)
             await session.commit()
             await session.refresh(user)
-            teacher_ids[teacher["username"]] = user.id
+            teacher_ids[teacher["name"]] = user.id
             logger.info(f"Teacher {teacher['name']} created")
         else:
-            teacher_ids[teacher["username"]] = exists.id
+            teacher_ids[teacher["name"]] = exists.id
 
     # Initialize settings
     stmt = select(SettingsTable).where(SettingsTable.id == "break_settings")
@@ -334,7 +552,7 @@ async def init_demo_data(session: AsyncSession):
     result = await session.execute(stmt)
     schedule_exists = result.scalar_one_or_none()
     if not schedule_exists:
-        await load_demo_schedules(session)
+        await load_demo_schedules(session, teacher_ids)
         logger.info("Demo schedules loaded")
 
 async def load_demo_schedules(session: AsyncSession, teacher_ids: dict):
@@ -465,250 +683,6 @@ async def load_demo_schedules(session: AsyncSession, teacher_ids: dict):
                 session.add(schedule)
     await session.commit()
 
-@app.on_event("startup")
-async def startup_event():
-    await init_demo_data()
-
-# ============ Auth Routes ============
-
-@api_router.post("/auth/login", response_model=TokenResponse)
-async def login(credentials: UserLogin, session: AsyncSession = Depends(get_db)):
-    from sqlalchemy import select
-
-    stmt = select(UserTable).where(UserTable.username == credentials.username)
-    result = await session.execute(stmt)
-    user = result.scalar_one_or_none()
-
-    if not user or not verify_password(credentials.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
-
-    user_obj = User(id=user.id, username=user.username, name=user.name, role=user.role, created_at=user.created_at)
-    token = create_token(user.id, user.username, user.role)
-
-    return TokenResponse(token=token, user=user_obj)
-
-@api_router.get("/auth/verify")
-async def verify_token(current_user: User = Depends(get_current_user)):
-    return {"valid": True, "user": current_user}
-
-# ============ User Routes ============
-
-@api_router.get("/users", response_model=List[User])
-async def get_users(current_user: User = Depends(get_current_user)):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
-    for user in users:
-        if isinstance(user.get('created_at'), str):
-            user['created_at'] = datetime.fromisoformat(user['created_at'])
-    return users
-
-@api_router.post("/users", response_model=User)
-async def create_user(user_data: UserCreate, current_user: User = Depends(get_current_user)):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    # Check if username exists
-    exists = await db.users.find_one({"username": user_data.username})
-    if exists:
-        raise HTTPException(status_code=400, detail="Username already exists")
-
-    user = User(
-        username=user_data.username,
-        name=user_data.name,
-        role=user_data.role
-    )
-
-    user_doc = user.model_dump()
-    user_doc['created_at'] = user_doc['created_at'].isoformat()
-    user_doc['password_hash'] = hash_password(user_data.password)
-
-    await db.users.insert_one(user_doc)
-    return user
-
-@api_router.delete("/users/{user_id}")
-async def delete_user(user_id: str, current_user: User = Depends(get_current_user)):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    result = await db.users.delete_one({"id": user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # Delete associated schedules
-    await db.schedules.delete_many({"teacher_id": user_id})
-
-    return {"message": "User deleted successfully"}
-
-# ============ Schedule Routes ============
-
-@api_router.get("/schedules", response_model=List[ScheduleEntry])
-async def get_schedules(teacher_id: Optional[str] = None, current_user: User = Depends(get_current_user)):
-    query = {}
-    if current_user.role == 'teacher':
-        query["teacher_id"] = current_user.id
-    elif teacher_id:
-        query["teacher_id"] = teacher_id
-
-    schedules = await db.schedules.find(query, {"_id": 0}).to_list(1000)
-    for schedule in schedules:
-        if isinstance(schedule.get('updated_at'), str):
-            schedule['updated_at'] = datetime.fromisoformat(schedule['updated_at'])
-
-    return schedules
-
-@api_router.post("/schedules", response_model=ScheduleEntry)
-async def create_schedule(schedule_data: ScheduleCreate, current_user: User = Depends(get_current_user)):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    # Check for conflicts
-    conflict = await db.schedules.find_one({
-        "day": schedule_data.day,
-        "period": schedule_data.period,
-        "class_name": schedule_data.class_name
-    })
-
-    if conflict:
-        raise HTTPException(status_code=400, detail="Schedule conflict: This class already has a lesson at this time")
-
-    schedule = ScheduleEntry(**schedule_data.model_dump())
-    schedule_doc = schedule.model_dump()
-    schedule_doc['updated_at'] = schedule_doc['updated_at'].isoformat()
-
-    await db.schedules.insert_one(schedule_doc)
-    return schedule
-
-@api_router.put("/schedules/{schedule_id}", response_model=ScheduleEntry)
-async def update_schedule(schedule_id: str, update_data: ScheduleUpdate, current_user: User = Depends(get_current_user)):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    existing = await db.schedules.find_one({"id": schedule_id}, {"_id": 0})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Schedule not found")
-
-    # Log the change
-    changes = []
-    if update_data.subject and update_data.subject != existing.get('subject'):
-        changes.append(f"Subject: {existing.get('subject')} → {update_data.subject}")
-    if update_data.class_name and update_data.class_name != existing.get('class_name'):
-        changes.append(f"Class: {existing.get('class_name')} → {update_data.class_name}")
-
-    if changes:
-        changelog = ChangeLog(
-            schedule_id=schedule_id,
-            teacher_id=existing['teacher_id'],
-            teacher_name=existing['teacher_name'],
-            day=existing['day'],
-            period=existing['period'],
-            old_value=existing.get('subject', '') + ' - ' + existing.get('class_name', ''),
-            new_value=(update_data.subject or existing.get('subject', '')) + ' - ' + (update_data.class_name or existing.get('class_name', '')),
-            changed_by=current_user.name
-        )
-        changelog_doc = changelog.model_dump()
-        changelog_doc['timestamp'] = changelog_doc['timestamp'].isoformat()
-        await db.changelogs.insert_one(changelog_doc)
-
-    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
-    update_dict['updated_at'] = datetime.now(timezone.utc).isoformat()
-
-    await db.schedules.update_one({"id": schedule_id}, {"$set": update_dict})
-
-    updated = await db.schedules.find_one({"id": schedule_id}, {"_id": 0})
-    if isinstance(updated.get('updated_at'), str):
-        updated['updated_at'] = datetime.fromisoformat(updated['updated_at'])
-
-    return ScheduleEntry(**updated)
-
-@api_router.delete("/schedules/{schedule_id}")
-async def delete_schedule(schedule_id: str, current_user: User = Depends(get_current_user)):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    result = await db.schedules.delete_one({"id": schedule_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Schedule not found")
-
-    return {"message": "Schedule deleted successfully"}
-
-# ============ Settings Routes ============
-
-@api_router.get("/settings/break-period")
-async def get_break_settings():
-    settings = await db.settings.find_one({"id": "break_settings"}, {"_id": 0})
-    if not settings:
-        settings = Settings().model_dump()
-        settings['updated_at'] = settings['updated_at'].isoformat()
-        await db.settings.insert_one(settings)
-
-    if isinstance(settings.get('updated_at'), str):
-        settings['updated_at'] = datetime.fromisoformat(settings['updated_at'])
-
-    return Settings(**settings)
-
-@api_router.put("/settings/break-period")
-async def update_break_settings(break_after: int, current_user: User = Depends(get_current_user)):
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    if break_after not in [3, 4]:
-        raise HTTPException(status_code=400, detail="Break can only be after period 3 or 4")
-
-    await db.settings.update_one(
-        {"id": "break_settings"},
-        {"$set": {"break_after_period": break_after, "updated_at": datetime.now(timezone.utc).isoformat()}},
-        upsert=True
-    )
-
-    return {"break_after_period": break_after}
-
-# ============ Changelog Routes ============
-
-@api_router.get("/changelogs", response_model=List[ChangeLog])
-async def get_changelogs(teacher_id: Optional[str] = None, current_user: User = Depends(get_current_user)):
-    query = {}
-    if current_user.role == 'teacher':
-        query["teacher_id"] = current_user.id
-    elif teacher_id:
-        query["teacher_id"] = teacher_id
-
-    changelogs = await db.changelogs.find(query, {"_id": 0}).sort("timestamp", -1).to_list(100)
-    for log in changelogs:
-        if isinstance(log.get('timestamp'), str):
-            log['timestamp'] = datetime.fromisoformat(log['timestamp'])
-
-    return changelogs
-
-# ============ Demo Data Routes ============
-
-@api_router.post("/demo/load-schedules")
-async def load_demo_schedules_endpoint(current_user: User = Depends(get_current_user)):
-    """Load comprehensive demo timetable data for all teachers (Admin only)"""
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    # Clear existing schedules
-    await db.schedules.delete_many({})
-    await db.changelogs.delete_many({})
-
-    # Load demo data
-    await load_demo_schedules()
-
-    return {"message": "Demo schedules loaded successfully", "status": "success"}
-
-@api_router.post("/demo/clear-schedules")
-async def clear_all_schedules(current_user: User = Depends(get_current_user)):
-    """Clear all schedules and changelogs (Admin only)"""
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    await db.schedules.delete_many({})
-    await db.changelogs.delete_many({})
-
-    return {"message": "All schedules cleared successfully", "status": "success"}
-
 # Include the router
 app.include_router(api_router)
 
@@ -725,11 +699,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-@app.on_event("startup")
-async def startup_event():
-    await create_tables()
-    await init_demo_data()
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

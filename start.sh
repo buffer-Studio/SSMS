@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e  # Exit on any error
 
 echo "Checking system installations..."
 
@@ -34,43 +35,35 @@ if ! command -v pip &> /dev/null; then
     exit 1
 fi
 
-echo "Installing backend dependencies..."
-cd backend
-pip install -r requirements.txt
-if [ $? -ne 0 ]; then
-    echo "Failed to install backend dependencies."
-    exit 1
-fi
+echo "Assuming dependencies are installed manually."
 
-echo "Installing frontend dependencies..."
-cd ../frontend
-if [ "$PACKAGE_MANAGER" = "bun" ]; then
-    bun install
+# Check if services are already running
+if [ -f backend.pid ] && kill -0 $(cat backend.pid) 2>/dev/null; then
+    echo "Backend already running (PID: $(cat backend.pid)). Skipping start."
 else
-    npm install
-fi
-if [ $? -ne 0 ]; then
-    echo "Failed to install frontend dependencies."
-    exit 1
+    echo "Starting backend server..."
+    cd backend
+    uvicorn server:app --host 127.0.0.1 --port 8080 &
+    BACKEND_PID=$!
+    echo $BACKEND_PID > backend.pid
+    echo "Backend started with PID: $BACKEND_PID"
 fi
 
-echo "Starting backend server..."
-cd ../backend
-uvicorn server:app --host 127.0.0.1 --port 8080 &
-BACKEND_PID=$!
-echo "Backend started with PID: $BACKEND_PID"
-
-echo "Starting frontend server..."
-cd ../frontend
-if [ "$PACKAGE_MANAGER" = "bun" ]; then
-    bun start &
+if [ -f frontend.pid ] && kill -0 $(cat frontend.pid) 2>/dev/null; then
+    echo "Frontend already running (PID: $(cat frontend.pid)). Skipping start."
 else
-    npm start &
+    echo "Starting frontend server..."
+    cd frontend
+    if [ "$PACKAGE_MANAGER" = "bun" ]; then
+        bun start &
+    else
+        npm start &
+    fi
+    FRONTEND_PID=$!
+    echo $FRONTEND_PID > frontend.pid
+    echo "Frontend started with PID: $FRONTEND_PID"
 fi
-FRONTEND_PID=$!
-echo "Frontend started with PID: $FRONTEND_PID"
 
 echo "Services started successfully."
 echo "Backend: http://127.0.0.1:8080"
 echo "Frontend: http://localhost:4040"
-echo "PIDs: Backend $BACKEND_PID, Frontend $FRONTEND_PID"

@@ -85,7 +85,7 @@ pip install -r requirements.txt
 3. **Configure environment variables:**
 The `.env` file should contain:
 ```
-DATABASE_URL="sqlite:///school_schedule.db"
+DATABASE_URL="sqlite+aiosqlite:///school_schedule.db"
 CORS_ORIGINS="*"
 JWT_SECRET_KEY="school-schedule-secret-key-2025"
 ```
