@@ -5,10 +5,14 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import { LogOut, Moon, Sun, Users, Calendar, Settings as SettingsIcon, Plus, Trash2, Edit2, QrCode } from 'lucide-react';
+import TeacherManagement from '../components/TeacherManagement';
+import BulkOperations from '../components/BulkOperations';
+import { useTeachers, useSchedules, useSettings } from '../hooks/useAdminData';
 import TimetableGrid from '../components/TimetableGrid';
 import QRCodeModal from '../components/QRCodeModal';
 
@@ -20,14 +24,57 @@ const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDarkMode }) => {
   const navigate = useNavigate();
-  const [teachers, setTeachers] = useState([]);
-  const [schedules, setSchedules] = useState([]);
-  const [breakAfter, setBreakAfter] = useState(3);
-  const [loading, setLoading] = useState(true);
+  const { teachers, loading: teachersLoading, refetch: refetchTeachers } = useTeachers(token);
+  const { schedules, loading: schedulesLoading, refetch: refetchSchedules } = useSchedules(token);
+  const { breakAfter, loading: settingsLoading, updateBreakPeriod } = useSettings();
+
+  const [loading, setLoading] = useState(teachersLoading || schedulesLoading || settingsLoading);
+
+  useEffect(() => {
+    setLoading(teachersLoading || schedulesLoading || settingsLoading);
+  }, [teachersLoading, schedulesLoading, settingsLoading]);
+
+  // Fetch changelogs
+  useEffect(() => {
+    const fetchChangelogs = async () => {
+      try {
+        const response = await axios.get(`${API}/changelogs`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setChangelogs(response.data);
+      } catch (error) {
+        console.error('Failed to load changelogs');
+      }
+    };
+    fetchChangelogs();
+  }, [token]);
+
+  const handleDataUpdate = () => {
+    refetchTeachers();
+    refetchSchedules();
+  };
+
+  // Legacy fetchData function for backward compatibility
+  const fetchData = () => {
+    refetchTeachers();
+    refetchSchedules();
+  };
+
+  const [selectedTeacher, setSelectedTeacher] = useState('');
+  const [changelogs, setChangelogs] = useState([]);
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [showAddSchedule, setShowAddSchedule] = useState(false);
   const [showAddTeacher, setShowAddTeacher] = useState(false);
   const [showEditSchedule, setShowEditSchedule] = useState(false);
-  const [showQRModal, setShowQRModal] = useState(false);
-  const [selectedTeacher, setSelectedTeacher] = useState(null);
+  const [pendingScheduleCell, setPendingScheduleCell] = useState(null);
+  const [pendingDeleteTeacher, setPendingDeleteTeacher] = useState(null);
+  const [pendingDeleteSchedule, setPendingDeleteSchedule] = useState(null);
+  const [pendingLoadDemo, setPendingLoadDemo] = useState(false);
+  const [pendingClearAll, setPendingClearAll] = useState(false);
+  const [submittingTeacher, setSubmittingTeacher] = useState(false);
+  const [submittingSchedule, setSubmittingSchedule] = useState(false);
+  const [updatingSchedule, setUpdatingSchedule] = useState(false);
+
   const [selectedSchedule, setSelectedSchedule] = useState(null);
 
   const [newTeacher, setNewTeacher] = useState({
@@ -36,67 +83,130 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
     name: ''
   });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const [newScheduleEntry, setNewScheduleEntry] = useState({
+    subject: '',
+    class_name: ''
+  });
 
-  const fetchData = async () => {
-    try {
-      const [teachersRes, schedulesRes, settingsRes] = await Promise.all([
-        axios.get(`${API}/users`, {
-          headers: { Authorization: `Bearer ${token}` }
-        }),
-        axios.get(`${API}/schedules`, {
-          headers: { Authorization: `Bearer ${token}` }
-        }),
-        axios.get(`${API}/settings/break-period`)
-      ]);
+  const [formErrors, setFormErrors] = useState({});
 
-      setTeachers(teachersRes.data.filter(u => u.role === 'teacher'));
-      setSchedules(schedulesRes.data);
-      setBreakAfter(settingsRes.data.break_after_period);
-    } catch (error) {
-      toast.error('Failed to load data');
-    } finally {
-      setLoading(false);
+  const validateTeacherForm = () => {
+    const errors = {};
+
+    if (!newTeacher.name.trim()) {
+      errors.name = 'Full name is required';
+    } else if (newTeacher.name.trim().length < 2) {
+      errors.name = 'Name must be at least 2 characters';
     }
+
+    if (!newTeacher.username.trim()) {
+      errors.username = 'Username is required';
+    } else if (newTeacher.username.length < 3) {
+      errors.username = 'Username must be at least 3 characters';
+    } else if (!/^[a-zA-Z0-9_]+$/.test(newTeacher.username)) {
+      errors.username = 'Username can only contain letters, numbers, and underscores';
+    }
+
+    if (!newTeacher.password) {
+      errors.password = 'Password is required';
+    } else if (newTeacher.password.length < 6) {
+      errors.password = 'Password must be at least 6 characters';
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const validateScheduleForm = () => {
+    const errors = {};
+
+    if (!newScheduleEntry.subject?.trim()) {
+      errors.subject = 'Subject is required';
+    } else if (newScheduleEntry.subject.trim().length < 2) {
+      errors.subject = 'Subject must be at least 2 characters';
+    }
+
+    if (!newScheduleEntry.class_name?.trim()) {
+      errors.class_name = 'Class name is required';
+    } else if (newScheduleEntry.class_name.trim().length < 2) {
+      errors.class_name = 'Class name must be at least 2 characters';
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const validateEditScheduleForm = () => {
+    const errors = {};
+
+    if (!selectedSchedule?.subject?.trim()) {
+      errors.editSubject = 'Subject is required';
+    } else if (selectedSchedule.subject.trim().length < 2) {
+      errors.editSubject = 'Subject must be at least 2 characters';
+    }
+
+    if (!selectedSchedule?.class_name?.trim()) {
+      errors.editClassName = 'Class name is required';
+    } else if (selectedSchedule.class_name.trim().length < 2) {
+      errors.editClassName = 'Class name must be at least 2 characters';
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const handleAddTeacher = async (e) => {
     e.preventDefault();
+
+    if (!validateTeacherForm()) {
+      return;
+    }
+
+    setSubmittingTeacher(true);
     try {
-      await axios.post(`${API}/users`, newTeacher, {
+      await axios.post(`${API}/users`, {
+        username: newTeacher.username.trim(),
+        password: newTeacher.password,
+        name: newTeacher.name.trim(),
+        role: 'teacher'
+      }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       toast.success('Teacher added successfully');
       setShowAddTeacher(false);
       setNewTeacher({ username: '', password: '', name: '' });
+      setFormErrors({});
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add teacher');
+    } finally {
+      setSubmittingTeacher(false);
     }
   };
 
   const handleDeleteTeacher = async (teacherId) => {
-    if (!window.confirm('Are you sure you want to delete this teacher?')) return;
+    setPendingDeleteTeacher(teacherId);
+  };
+
+  const confirmDeleteTeacher = async () => {
+    if (!pendingDeleteTeacher) return;
 
     try {
-      await axios.delete(`${API}/users/${teacherId}`, {
+      await axios.delete(`${API}/users/${pendingDeleteTeacher}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       toast.success('Teacher deleted successfully');
       fetchData();
     } catch (error) {
       toast.error('Failed to delete teacher');
+    } finally {
+      setPendingDeleteTeacher(null);
     }
   };
 
   const handleUpdateBreak = async (value) => {
     try {
-      await axios.put(`${API}/settings/break-period?break_after=${value}`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setBreakAfter(value);
+      await updateBreakPeriod(value, token);
       toast.success(`Break period updated to after Period ${value}`);
     } catch (error) {
       toast.error('Failed to update break period');
@@ -110,21 +220,36 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
 
   const handleUpdateSchedule = async (e) => {
     e.preventDefault();
+
+    // Update selectedSchedule with form values
     const formData = new FormData(e.target);
-    const updateData = {
+    const updatedSchedule = {
+      ...selectedSchedule,
       subject: formData.get('subject'),
       class_name: formData.get('class_name')
     };
+    setSelectedSchedule(updatedSchedule);
 
+    if (!validateEditScheduleForm()) {
+      return;
+    }
+
+    setUpdatingSchedule(true);
     try {
-      await axios.put(`${API}/schedules/${selectedSchedule.id}`, updateData, {
+      await axios.put(`${API}/schedules/${selectedSchedule.id}`, {
+        subject: updatedSchedule.subject.trim(),
+        class_name: updatedSchedule.class_name.trim()
+      }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       toast.success('Schedule updated successfully');
       setShowEditSchedule(false);
+      setFormErrors({});
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update schedule');
+    } finally {
+      setUpdatingSchedule(false);
     }
   };
 
@@ -134,39 +259,61 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
       return;
     }
 
+    setPendingScheduleCell({ day, period });
+    setShowAddSchedule(true);
+  };
+
+  const handleSubmitScheduleEntry = async (e) => {
+    e.preventDefault();
+
+    if (!validateScheduleForm()) {
+      return;
+    }
+
+    if (!pendingScheduleCell || !selectedTeacher) return;
+
     const teacher = teachers.find(t => t.id === selectedTeacher);
-    const subject = prompt('Enter subject name:');
-    const className = prompt('Enter class name:');
+    if (!teacher) return;
 
-    if (!subject || !className) return;
-
+    setSubmittingSchedule(true);
     try {
       await axios.post(`${API}/schedules`, {
         teacher_id: teacher.id,
         teacher_name: teacher.name,
-        day,
-        period,
-        subject,
-        class_name: className
+        day: pendingScheduleCell.day,
+        period: pendingScheduleCell.period,
+        subject: newScheduleEntry.subject.trim(),
+        class_name: newScheduleEntry.class_name.trim()
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       toast.success('Schedule entry added');
+      setShowAddSchedule(false);
+      setNewScheduleEntry({ subject: '', class_name: '' });
+      setFormErrors({});
+      setPendingScheduleCell(null);
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add schedule');
+    } finally {
+      setSubmittingSchedule(false);
     }
   };
 
   const handleDeleteSchedule = async (scheduleId) => {
-    if (!window.confirm('Delete this schedule entry?')) return;
+    setPendingDeleteSchedule(scheduleId);
+  };
+
+  const confirmDeleteSchedule = async () => {
+    if (!pendingDeleteSchedule) return;
 
     try {
-      await axios.delete(`${API}/schedules/${scheduleId}`, {
+      await axios.delete(`${API}/schedules/${pendingDeleteSchedule}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       toast.success('Schedule deleted');
       setShowEditSchedule(false);
+      setPendingDeleteSchedule(null);
       fetchData();
     } catch (error) {
       toast.error('Failed to delete schedule');
@@ -174,7 +321,11 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
   };
 
   const handleLoadDemoSchedules = async () => {
-    if (!window.confirm('This will replace all existing schedules with demo data. Continue?')) return;
+    setPendingLoadDemo(true);
+  };
+
+  const confirmLoadDemoSchedules = async () => {
+    if (!pendingLoadDemo) return;
 
     try {
       await axios.post(`${API}/demo/load-schedules`, {}, {
@@ -184,11 +335,17 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
       fetchData();
     } catch (error) {
       toast.error('Failed to load demo schedules');
+    } finally {
+      setPendingLoadDemo(false);
     }
   };
 
   const handleClearAllSchedules = async () => {
-    if (!window.confirm('This will delete ALL schedules and changelogs. Are you sure?')) return;
+    setPendingClearAll(true);
+  };
+
+  const confirmClearAllSchedules = async () => {
+    if (!pendingClearAll) return;
 
     try {
       await axios.post(`${API}/demo/clear-schedules`, {}, {
@@ -198,6 +355,8 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
       fetchData();
     } catch (error) {
       toast.error('Failed to clear schedules');
+    } finally {
+      setPendingClearAll(false);
     }
   };
 
@@ -297,34 +456,72 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
 
           {/* Teachers Tab */}
           <TabsContent value="teachers" className="space-y-4">
-            <div className="glass p-6 rounded-2xl">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Teacher Management</h2>
-                <Button onClick={() => setShowAddTeacher(true)} data-testid="add-teacher-button">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Teacher
-                </Button>
-              </div>
+            <Tabs defaultValue="teachers" className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="teachers" className="flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  Teachers
+                </TabsTrigger>
+                <TabsTrigger value="schedule" className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4" />
+                  Schedule
+                </TabsTrigger>
+                <TabsTrigger value="bulk" className="flex items-center gap-2">
+                  <SettingsIcon className="w-4 h-4" />
+                  Bulk Ops
+                </TabsTrigger>
+              </TabsList>
 
-              <div className="grid gap-4">
-                {teachers.map(teacher => (
-                  <div key={teacher.id} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700">
-                    <div>
-                      <p className="font-semibold text-gray-900 dark:text-white">{teacher.name}</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">@{teacher.username}</p>
+              <TabsContent value="teachers" className="space-y-6">
+                <TeacherManagement
+                  teachers={teachers}
+                  onTeacherUpdate={handleDataUpdate}
+                  token={token}
+                />
+              </TabsContent>
+
+              <TabsContent value="schedule" className="space-y-6">
+                {/* Teacher Schedule View */}
+                <div className="glass p-6 rounded-2xl">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Teacher Schedules</h3>
+                    <div className="flex items-center gap-3">
+                      <Label className="text-sm text-gray-600 dark:text-gray-400">Select Teacher:</Label>
+                      <Select value={selectedTeacher} onValueChange={setSelectedTeacher}>
+                        <SelectTrigger className="w-48" data-testid="teacher-select-schedule">
+                          <SelectValue placeholder="Choose teacher" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {teachers.map(teacher => (
+                            <SelectItem key={teacher.id} value={teacher.id}>
+                              {teacher.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <Button
-                      onClick={() => handleDeleteTeacher(teacher.id)}
-                      variant="destructive"
-                      size="sm"
-                      data-testid={`delete-teacher-${teacher.id}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
                   </div>
-                ))}
-              </div>
-            </div>
+
+                  <TimetableGrid
+                    schedules={schedules.filter(s => !selectedTeacher || s.teacher_id === selectedTeacher)}
+                    breakAfter={breakAfter}
+                    onCellClick={handleScheduleClick}
+                    onEmptyCellClick={handleAddScheduleEntry}
+                    isAdmin={true}
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="bulk" className="space-y-6">
+                <BulkOperations
+                  teachers={teachers}
+                  schedules={schedules}
+                  onDataUpdate={handleDataUpdate}
+                  token={token}
+                />
+              </TabsContent>
+
+            </Tabs>
           </TabsContent>
 
           {/* Settings Tab */}
@@ -368,7 +565,7 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                   <div className="flex gap-3">
                     <Button
                       onClick={handleLoadDemoSchedules}
-                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                      className="bg-green-600 hover:bg-green-700 text-white"
                       data-testid="load-demo-schedules-button"
                     >
                       <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -376,6 +573,22 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                       </svg>
                       Load Demo Schedules
                     </Button>
+                    <AlertDialog open={pendingLoadDemo} onOpenChange={setPendingLoadDemo}>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Load Demo Schedules</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will replace all existing schedules with demo data. This action cannot be undone. Continue?
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={confirmLoadDemoSchedules} className="bg-green-600 hover:bg-green-700">
+                            Load Demo Data
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                     <Button
                       onClick={handleClearAllSchedules}
                       variant="outline"
@@ -387,10 +600,26 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                       </svg>
                       Clear All Schedules
                     </Button>
+                    <AlertDialog open={pendingClearAll} onOpenChange={setPendingClearAll}>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Clear All Schedules</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will delete ALL schedules and changelogs. This action cannot be undone. Are you sure?
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={confirmClearAllSchedules} className="bg-red-600 hover:bg-red-700">
+                            Delete Everything
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
-                  <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                    <p className="text-xs text-blue-900 dark:text-blue-300">
-                      <strong>Note:</strong> Demo schedules include realistic timetables for all 4 teachers (Alex, Amy, John, Sara)
+                  <div className="mt-3 p-3 bg-green-50 dark:bg-blue-900/20 rounded-lg">
+                    <p className="text-xs text-green-900 dark:text-blue-300">
+                      <strong>Note:</strong> Demo schedules include realistic timetables for all 4 teachers (Sagnik Sir, Nadeem Sir, Prinshu Sir, Abhishek Sir)
                       with subjects like Mathematics, Physics, English, and History across all weekdays.
                     </p>
                   </div>
@@ -414,20 +643,38 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
               <Input
                 id="name"
                 value={newTeacher.name}
-                onChange={(e) => setNewTeacher({...newTeacher, name: e.target.value})}
+                onChange={(e) => {
+                  setNewTeacher({...newTeacher, name: e.target.value});
+                  if (formErrors.name) {
+                    setFormErrors(prev => ({ ...prev, name: '' }));
+                  }
+                }}
                 required
+                className={formErrors.name ? 'border-red-500 focus:border-red-500' : ''}
                 data-testid="teacher-name-input"
               />
+              {formErrors.name && (
+                <p className="text-sm text-red-600 dark:text-red-400">{formErrors.name}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="username">Username</Label>
               <Input
                 id="username"
                 value={newTeacher.username}
-                onChange={(e) => setNewTeacher({...newTeacher, username: e.target.value})}
+                onChange={(e) => {
+                  setNewTeacher({...newTeacher, username: e.target.value});
+                  if (formErrors.username) {
+                    setFormErrors(prev => ({ ...prev, username: '' }));
+                  }
+                }}
                 required
+                className={formErrors.username ? 'border-red-500 focus:border-red-500' : ''}
                 data-testid="teacher-username-input"
               />
+              {formErrors.username && (
+                <p className="text-sm text-red-600 dark:text-red-400">{formErrors.username}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
@@ -435,17 +682,33 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                 id="password"
                 type="password"
                 value={newTeacher.password}
-                onChange={(e) => setNewTeacher({...newTeacher, password: e.target.value})}
+                onChange={(e) => {
+                  setNewTeacher({...newTeacher, password: e.target.value});
+                  if (formErrors.password) {
+                    setFormErrors(prev => ({ ...prev, password: '' }));
+                  }
+                }}
                 required
+                className={formErrors.password ? 'border-red-500 focus:border-red-500' : ''}
                 data-testid="teacher-password-input"
               />
+              {formErrors.password && (
+                <p className="text-sm text-red-600 dark:text-red-400">{formErrors.password}</p>
+              )}
             </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setShowAddTeacher(false)}>
                 Cancel
               </Button>
-              <Button type="submit" data-testid="submit-add-teacher">
-                Add Teacher
+              <Button type="submit" data-testid="submit-add-teacher" disabled={submittingTeacher}>
+                {submittingTeacher ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Adding...
+                  </>
+                ) : (
+                  'Add Teacher'
+                )}
               </Button>
             </div>
           </form>
@@ -469,9 +732,19 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                   id="subject"
                   name="subject"
                   defaultValue={selectedSchedule.subject}
+                  onChange={(e) => {
+                    setSelectedSchedule({...selectedSchedule, subject: e.target.value});
+                    if (formErrors.editSubject) {
+                      setFormErrors(prev => ({ ...prev, editSubject: '' }));
+                    }
+                  }}
                   required
+                  className={formErrors.editSubject ? 'border-red-500 focus:border-red-500' : ''}
                   data-testid="edit-subject-input"
                 />
+                {formErrors.editSubject && (
+                  <p className="text-sm text-red-600 dark:text-red-400">{formErrors.editSubject}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="class_name">Class</Label>
@@ -479,9 +752,19 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                   id="class_name"
                   name="class_name"
                   defaultValue={selectedSchedule.class_name}
+                  onChange={(e) => {
+                    setSelectedSchedule({...selectedSchedule, class_name: e.target.value});
+                    if (formErrors.editClassName) {
+                      setFormErrors(prev => ({ ...prev, editClassName: '' }));
+                    }
+                  }}
                   required
+                  className={formErrors.editClassName ? 'border-red-500 focus:border-red-500' : ''}
                   data-testid="edit-class-input"
                 />
+                {formErrors.editClassName && (
+                  <p className="text-sm text-red-600 dark:text-red-400">{formErrors.editClassName}</p>
+                )}
               </div>
               <div className="flex justify-between">
                 <Button
@@ -493,17 +776,111 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                   <Trash2 className="w-4 h-4 mr-2" />
                   Delete
                 </Button>
+                <AlertDialog open={pendingDeleteSchedule === selectedSchedule?.id} onOpenChange={() => setPendingDeleteSchedule(null)}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete Schedule Entry</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to delete this schedule entry? This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={confirmDeleteSchedule} className="bg-red-600 hover:bg-red-700">
+                        Delete Schedule
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
                 <div className="flex gap-2">
                   <Button type="button" variant="outline" onClick={() => setShowEditSchedule(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" data-testid="save-schedule-button">
-                    Save Changes
+                  <Button type="submit" data-testid="save-schedule-button" disabled={updatingSchedule}>
+                    {updatingSchedule ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                        Saving...
+                      </>
+                    ) : (
+                      'Save Changes'
+                    )}
                   </Button>
                 </div>
               </div>
             </form>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Schedule Entry Dialog */}
+      <Dialog open={showAddSchedule} onOpenChange={setShowAddSchedule}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Schedule Entry</DialogTitle>
+            <DialogDescription>
+              {pendingScheduleCell && `Add a new class for ${pendingScheduleCell.day}, Period ${pendingScheduleCell.period}`}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmitScheduleEntry} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="add-subject">Subject</Label>
+              <Input
+                id="add-subject"
+                value={newScheduleEntry.subject}
+                onChange={(e) => {
+                  setNewScheduleEntry({...newScheduleEntry, subject: e.target.value});
+                  if (formErrors.subject) {
+                    setFormErrors(prev => ({ ...prev, subject: '' }));
+                  }
+                }}
+                required
+                className={formErrors.subject ? 'border-red-500 focus:border-red-500' : ''}
+                data-testid="add-subject-input"
+              />
+              {formErrors.subject && (
+                <p className="text-sm text-red-600 dark:text-red-400">{formErrors.subject}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-class_name">Class</Label>
+              <Input
+                id="add-class_name"
+                value={newScheduleEntry.class_name}
+                onChange={(e) => {
+                  setNewScheduleEntry({...newScheduleEntry, class_name: e.target.value});
+                  if (formErrors.class_name) {
+                    setFormErrors(prev => ({ ...prev, class_name: '' }));
+                  }
+                }}
+                required
+                className={formErrors.class_name ? 'border-red-500 focus:border-red-500' : ''}
+                data-testid="add-class-input"
+              />
+              {formErrors.class_name && (
+                <p className="text-sm text-red-600 dark:text-red-400">{formErrors.class_name}</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => {
+                setShowAddSchedule(false);
+                setNewScheduleEntry({ subject: '', class_name: '' });
+                setPendingScheduleCell(null);
+              }}>
+                Cancel
+              </Button>
+              <Button type="submit" data-testid="submit-add-schedule" disabled={submittingSchedule}>
+                {submittingSchedule ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Adding...
+                  </>
+                ) : (
+                  'Add Schedule'
+                )}
+              </Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
 

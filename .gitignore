@@ -2,7 +2,7 @@
 
 # IDE and editors
 .idea/
-.vscode/
+.windsurf/
 
 # Dependencies
 node_modules/

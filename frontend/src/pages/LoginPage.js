@@ -5,7 +5,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
-import { LogIn, ArrowLeft } from 'lucide-react';
+import { LogIn, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -15,14 +15,40 @@ const LoginPage = ({ onLogin, darkMode }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [showPassword, setShowPassword] = useState(false);
+
+  const validateForm = () => {
+    const newErrors = {};
+
+    if (!username.trim()) {
+      newErrors.username = 'Username is required';
+    } else if (username.length < 3) {
+      newErrors.username = 'Username must be at least 3 characters';
+    }
+
+    if (!password) {
+      newErrors.password = 'Password is required';
+    } else if (password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!validateForm()) {
+      return;
+    }
+
     setLoading(true);
 
     try {
       const response = await axios.post(`${API}/auth/login`, {
-        username,
+        username: username.trim(),
         password
       });
 
@@ -31,12 +57,7 @@ const LoginPage = ({ onLogin, darkMode }) => {
 
       toast.success(`Welcome back, ${user.name}!`);
 
-      // Navigate based on role
-      if (user.role === 'admin') {
-        navigate('/admin');
-      } else {
-        navigate('/dashboard');
-      }
+      // Navigation will be handled by AuthRedirect component in App.js
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Login failed. Please check your credentials.');
     } finally {
@@ -47,7 +68,7 @@ const LoginPage = ({ onLogin, darkMode }) => {
   return (
     <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
       {/* Background decorative elements */}
-      <div className="absolute top-0 left-0 w-96 h-96 bg-blue-200 dark:bg-blue-900 rounded-full filter blur-3xl opacity-20 -translate-x-1/2 -translate-y-1/2"></div>
+      <div className="absolute top-0 left-0 w-96 h-96 bg-green-200 dark:bg-blue-900 rounded-full filter blur-3xl opacity-20 -translate-x-1/2 -translate-y-1/2"></div>
       <div className="absolute bottom-0 right-0 w-96 h-96 bg-purple-200 dark:bg-purple-900 rounded-full filter blur-3xl opacity-20 translate-x-1/2 translate-y-1/2"></div>
 
       {/* Back button */}
@@ -67,7 +88,7 @@ const LoginPage = ({ onLogin, darkMode }) => {
           {/* Header */}
           <div className="text-center space-y-2">
             <div className="flex justify-center mb-4">
-              <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-4 rounded-2xl">
+              <div className="bg-gradient-to-br from-green-500 to-green-600 dark:from-blue-500 dark:to-blue-600 p-4 rounded-2xl">
                 <LogIn className="w-8 h-8 text-white" />
               </div>
             </div>
@@ -84,31 +105,67 @@ const LoginPage = ({ onLogin, darkMode }) => {
                 type="text"
                 placeholder="Enter your username"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={(e) => {
+                  setUsername(e.target.value);
+                  if (errors.username) {
+                    setErrors(prev => ({ ...prev, username: '' }));
+                  }
+                }}
                 required
-                className="bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-600"
+                className={`bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-600 ${
+                  errors.username ? 'border-red-500 focus:border-red-500' : ''
+                }`}
                 data-testid="username-input"
               />
+              {errors.username && (
+                <p className="text-sm text-red-600 dark:text-red-400">{errors.username}</p>
+              )}
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="password" className="text-gray-700 dark:text-gray-300">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-600"
-                data-testid="password-input"
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (errors.password) {
+                      setErrors(prev => ({ ...prev, password: '' }));
+                    }
+                  }}
+                  required
+                  className={`bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-600 pr-10 ${
+                    errors.password ? 'border-red-500 focus:border-red-500' : ''
+                  }`}
+                  data-testid="password-input"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4 text-gray-400" />
+                  ) : (
+                    <Eye className="h-4 w-4 text-gray-400" />
+                  )}
+                </Button>
+              </div>
+              {errors.password && (
+                <p className="text-sm text-red-600 dark:text-red-400">{errors.password}</p>
+              )}
             </div>
 
             <Button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white py-6 rounded-xl shadow-lg hover:shadow-xl"
+              className="w-full bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 dark:from-blue-600 dark:to-blue-500 dark:hover:from-blue-700 dark:hover:to-blue-600 text-white py-6 rounded-xl shadow-lg hover:shadow-xl"
               data-testid="login-submit-button"
             >
               {loading ? (
@@ -126,8 +183,8 @@ const LoginPage = ({ onLogin, darkMode }) => {
           <div className="pt-4 border-t border-gray-200 dark:border-slate-700">
             <p className="text-xs text-gray-500 dark:text-gray-500 text-center mb-3">Demo Accounts</p>
             <div className="space-y-2 text-xs">
-              <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
-                <p className="font-semibold text-blue-900 dark:text-blue-300">Admin</p>
+              <div className="bg-green-50 dark:bg-blue-900/20 p-3 rounded-lg">
+                <p className="font-semibold text-green-900 dark:text-blue-300">Admin</p>
                 <p className="text-gray-600 dark:text-gray-400">admin123 / password123</p>
               </div>
               <div className="grid grid-cols-2 gap-2">

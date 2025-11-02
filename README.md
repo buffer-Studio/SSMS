@@ -37,21 +37,21 @@ A minimalistic yet impressive web-based scheduling management system designed fo
 
 **Backend:**
 - FastAPI - High-performance Python web framework
-- Motor - Async MongoDB driver
+- SQLite3 - Lightweight SQL database
 - PyJWT - JWT token authentication
 - Passlib - Password hashing
 - Pydantic - Data validation
 
 **Database:**
-- MongoDB - NoSQL document database
+- SQLite3 - File-based SQL database (no setup required)
 
 ### Architecture Flow
 ```
 ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
-│   React     │  HTTP   │   FastAPI   │  Async  │   MongoDB   │
+│   React     │  HTTP   │   FastAPI   │  SQLite │   SQLite3   │
 │  Frontend   ├────────>│   Backend   ├────────>│   Database  │
-│  (Port 3000)│ <──────┤  (Port 8000)│ <──────┤ (Port 27017)│
-└─────────────┘  JSON   └─────────────┘  Motor  └─────────────┘
+│  (Port 3000)│ <──────┤  (Port 8000)│ <──────┤ (ssms.db)    │
+└─────────────┘  JSON   └─────────────┘         └─────────────┘
        │
        │ JWT Authentication
        │ State Management
@@ -69,37 +69,30 @@ A minimalistic yet impressive web-based scheduling management system designed fo
 ### Prerequisites
 - Node.js 16+ and npm/bun
 - Python 3.11+
-- Docker (for MongoDB)
+- SQLite3 (usually pre-installed on most systems)
 
 ### Backend Setup
 
-1. **Start MongoDB using Docker:**
-```bash
-docker run -d --name mongodb -p 27017:27017 -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=password mongo:latest
-```
-
-2. **Navigate to backend directory:**
+1. **Navigate to backend directory:**
 ```bash
 cd backend
 ```
 
-3. **Install Python dependencies:**
+2. **Install Python dependencies:**
 ```bash
 pip install -r requirements.txt
 ```
 
-4. **Configure environment variables:**
+3. **Configure environment variables:**
 The `.env` file should contain:
 ```
-MONGO_URL="mongodb://admin:password@localhost:27017/school_schedule_db?authSource=admin"
-DB_NAME="school_schedule_db"
 CORS_ORIGINS="*"
 JWT_SECRET_KEY="school-schedule-secret-key-2025"
 ```
 
-5. **Start the backend server:**
+4. **Start the backend server:**
 ```bash
-uvicorn server:app --host 127.0.0.1 --port 8000
+uvicorn server:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 The backend will be available at `http://127.0.0.1:8000`
@@ -132,19 +125,14 @@ The application will open at `http://localhost:3000`
 
 Run these commands in separate terminal windows:
 
-**Terminal 1 - MongoDB:**
-```bash
-docker run -d --name mongodb -p 27017:27017 -e MONGO_INITDB_ROOT_USERNAME=admin -e MONGO_INITDB_ROOT_PASSWORD=password mongo:latest
-```
-
-**Terminal 2 - Backend:**
+**Terminal 1 - Backend:**
 ```bash
 cd backend
 pip install -r requirements.txt
-uvicorn server:app --host 127.0.0.1 --port 8000
+uvicorn server:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-**Terminal 3 - Frontend:**
+**Terminal 2 - Frontend:**
 ```bash
 cd frontend
 bun install
@@ -153,9 +141,8 @@ bun start
 
 ### Verification
 
-1. **Check MongoDB:** `docker ps | grep mongodb`
-2. **Check Backend:** Visit `http://127.0.0.1:8000/docs`
-3. **Check Frontend:** Visit `http://localhost:3000`
+1. **Check Backend:** Visit `http://127.0.0.1:8000/docs`
+2. **Check Frontend:** Visit `http://localhost:3000`
 
 ## 👥 Demo Accounts
 
@@ -248,15 +235,16 @@ Toggle exhibition mode from the homepage to showcase the system with:
 ## 🔧 Troubleshooting
 
 **Backend won't start:**
-- Check if MongoDB Docker container is running: `docker ps | grep mongodb`
-- Verify port 8000 is available
-- Check MongoDB connection string in `.env` file
-- Ensure Docker is installed and running
+- Check if port 8000 is available
+- Verify Python 3.11+ is installed: `python3 --version`
+- Check if SQLite3 is available: `python3 -c "import sqlite3; print('SQLite OK')"`
+- Ensure all Python dependencies are installed
+- Check backend logs for specific error messages
 
-**MongoDB connection issues:**
-- Restart MongoDB container: `docker restart mongodb`
-- Check container logs: `docker logs mongodb`
-- Verify authentication credentials in connection string
+**Database issues:**
+- SQLite database file `ssms.db` is created automatically in `backend/` directory
+- If database is corrupted, delete `backend/ssms.db` and restart backend
+- No manual database setup required
 
 **Frontend won't connect:**
 - Ensure backend is running on port 8000
@@ -266,19 +254,19 @@ Toggle exhibition mode from the homepage to showcase the system with:
 - Restart frontend after changing `.env` file
 
 **Login fails:**
-- Verify MongoDB is running and accessible
+- Verify SQLite database was created during backend startup
 - Check backend logs for initialization messages
 - Ensure demo users were created during startup
 - Try restarting the backend server
 
 **Port conflicts:**
-- Backend uses port 8000 (not 8001)
+- Backend uses port 8000
 - Frontend uses port 3000
-- MongoDB uses port 27017
+- Kill existing processes: `pkill -f "python.*server.py"` or `pkill -f "bun start"`
 
 **Port already in use error:**
-- Kill existing uvicorn processes: `pkill -f uvicorn`
-- Or find and kill specific process: `ps aux | grep uvicorn` then `kill [PID]`
+- Kill existing uvicorn processes: `pkill -f python`
+- Or find and kill specific process: `ps aux | grep python` then `kill [PID]`
 - Check if port is free: `ss -tlnp | grep 8000`
 
 ## 📄 API Endpoints
