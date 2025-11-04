@@ -9,10 +9,10 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { LogOut, Moon, Sun, Users, Calendar, Settings as SettingsIcon, Plus, Trash2, Edit2, QrCode } from 'lucide-react';
+import { LogOut, Moon, Sun, Users, Calendar, Settings as SettingsIcon, Plus, Trash2, Edit2, QrCode, Clock } from 'lucide-react';
 import TeacherManagement from '../components/TeacherManagement';
 import BulkOperations from '../components/BulkOperations';
-import { useTeachers, useSchedules, useSettings } from '../hooks/useAdminData';
+import { useAdminData } from '../hooks/useScheduleManagement';
 import TimetableGrid from '../components/TimetableGrid';
 import QRCodeModal from '../components/QRCodeModal';
 
@@ -24,58 +24,49 @@ const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDarkMode }) => {
   const navigate = useNavigate();
-  const { teachers, loading: teachersLoading, refetch: refetchTeachers } = useTeachers(token);
-  const { schedules, loading: schedulesLoading, refetch: refetchSchedules } = useSchedules(token);
-  const { breakAfter, loading: settingsLoading, updateBreakPeriod } = useSettings();
+  const { 
+    teachers, 
+    schedules, 
+    settings, 
+    temporarySchedules, 
+    changelogs, 
+    loading, 
+    refetch, 
+    updateBreakPeriod,
+    createTemporarySchedule,
+    deleteTemporarySchedule
+  } = useAdminData(token);
 
-  const [loading, setLoading] = useState(teachersLoading || schedulesLoading || settingsLoading);
+  // Extract breakAfter from settings
+  const breakAfter = settings?.break_after_period || 3;
 
-  useEffect(() => {
-    setLoading(teachersLoading || schedulesLoading || settingsLoading);
-  }, [teachersLoading, schedulesLoading, settingsLoading]);
+  const isRecentChange = (scheduleId) => {
+    if (!scheduleId) return false;
 
-  // Fetch changelogs
-  useEffect(() => {
-    const fetchChangelogs = async () => {
-      try {
-        const response = await axios.get(`${API}/changelogs`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setChangelogs(response.data);
-      } catch (error) {
-        console.error('Failed to load changelogs');
-      }
-    };
-    fetchChangelogs();
-  }, [token]);
-
-  const isRecentChange = (updatedAt) => {
-    if (!updatedAt) return false;
-
-    const updatedDate = new Date(updatedAt);
-    const now = new Date();
-    const diffMs = now - updatedDate;
-
-    // Consider it recent if updated within the last 24 hours
-    // But exclude schedules that were likely loaded as demo data
-    // (demo data timestamps are usually very close together)
+    // Check if this schedule has a recent changelog entry
     const recentThreshold = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-    const demoThreshold = 5 * 60 * 1000; // 5 minutes - if updated very recently, likely demo data
+    const now = new Date();
 
-    return diffMs < recentThreshold && diffMs > demoThreshold;
+    return changelogs.some(log => {
+      if (log.schedule_id !== scheduleId) return false;
+      
+      const logDate = new Date(log.timestamp);
+      const diffMs = now - logDate;
+      
+      return diffMs < recentThreshold;
+    });
   };
 
   const handleDataUpdate = () => {
-    refetchTeachers();
-    refetchSchedules();
+    refetch();
   };
 
   const [selectedTeacher, setSelectedTeacher] = useState('');
-  const [changelogs, setChangelogs] = useState([]);
   const [showQRModal, setShowQRModal] = useState(false);
   const [showAddSchedule, setShowAddSchedule] = useState(false);
-  const [showAddTeacher, setShowAddTeacher] = useState(false);
+  const [showAddTemporarySchedule, setShowAddTemporarySchedule] = useState(false);
   const [showEditSchedule, setShowEditSchedule] = useState(false);
+  const [showEditTemporarySchedule, setShowEditTemporarySchedule] = useState(false);
   const [pendingScheduleCell, setPendingScheduleCell] = useState(null);
   const [pendingDeleteTeacher, setPendingDeleteTeacher] = useState(null);
   const [pendingDeleteSchedule, setPendingDeleteSchedule] = useState(null);
@@ -87,45 +78,12 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
 
   const [selectedSchedule, setSelectedSchedule] = useState(null);
 
-  const [newTeacher, setNewTeacher] = useState({
-    username: '',
-    password: '',
-    name: ''
-  });
-
   const [newScheduleEntry, setNewScheduleEntry] = useState({
     subject: '',
     class_name: ''
   });
 
   const [formErrors, setFormErrors] = useState({});
-
-  const validateTeacherForm = () => {
-    const errors = {};
-
-    if (!newTeacher.name.trim()) {
-      errors.name = 'Full name is required';
-    } else if (newTeacher.name.trim().length < 2) {
-      errors.name = 'Name must be at least 2 characters';
-    }
-
-    if (!newTeacher.username.trim()) {
-      errors.username = 'Username is required';
-    } else if (newTeacher.username.length < 3) {
-      errors.username = 'Username must be at least 3 characters';
-    } else if (!/^[a-zA-Z0-9_]+$/.test(newTeacher.username)) {
-      errors.username = 'Username can only contain letters, numbers, and underscores';
-    }
-
-    if (!newTeacher.password) {
-      errors.password = 'Password is required';
-    } else if (newTeacher.password.length < 6) {
-      errors.password = 'Password must be at least 6 characters';
-    }
-
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
 
   const validateScheduleForm = () => {
     const errors = {};
@@ -165,35 +123,6 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
     return Object.keys(errors).length === 0;
   };
 
-  const handleAddTeacher = async (e) => {
-    e.preventDefault();
-
-    if (!validateTeacherForm()) {
-      return;
-    }
-
-    setSubmittingTeacher(true);
-    try {
-      await axios.post(`${API}/users`, {
-        username: newTeacher.username.trim(),
-        password: newTeacher.password,
-        name: newTeacher.name.trim(),
-        role: 'teacher'
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      toast.success('Teacher added successfully');
-      setShowAddTeacher(false);
-      setNewTeacher({ username: '', password: '', name: '' });
-      setFormErrors({});
-      fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add teacher');
-    } finally {
-      setSubmittingTeacher(false);
-    }
-  };
-
   const handleDeleteTeacher = async (teacherId) => {
     setPendingDeleteTeacher(teacherId);
   };
@@ -206,7 +135,7 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
         headers: { Authorization: `Bearer ${token}` }
       });
       toast.success('Teacher deleted successfully');
-      fetchData();
+      refetch();
     } catch (error) {
       toast.error('Failed to delete teacher');
     } finally {
@@ -216,7 +145,7 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
 
   const handleUpdateBreak = async (value) => {
     try {
-      await updateBreakPeriod(value, token);
+      await updateBreakPeriod(value);
       toast.success(`Break period updated to after Period ${value}`);
     } catch (error) {
       toast.error('Failed to update break period');
@@ -255,7 +184,7 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
       toast.success('Schedule updated successfully');
       setShowEditSchedule(false);
       setFormErrors({});
-      fetchData();
+      refetch();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update schedule');
     } finally {
@@ -302,7 +231,7 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
       setNewScheduleEntry({ subject: '', class_name: '' });
       setFormErrors({});
       setPendingScheduleCell(null);
-      fetchData();
+      refetch();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add schedule');
     } finally {
@@ -321,12 +250,112 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
       await axios.delete(`${API}/schedules/${pendingDeleteSchedule}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      toast.success('Schedule deleted');
+      toast.success('Schedule deleted successfully');
       setShowEditSchedule(false);
-      setPendingDeleteSchedule(null);
-      fetchData();
+      refetch();
     } catch (error) {
       toast.error('Failed to delete schedule');
+    } finally {
+      setPendingDeleteSchedule(null);
+    }
+  };
+
+  const handleTemporaryScheduleClick = (schedule) => {
+    // Handle editing temporary schedules
+    setSelectedSchedule(schedule);
+    setShowEditTemporarySchedule(true);
+  };
+
+  const handleAddTemporaryScheduleEntry = async (day, period) => {
+    if (!selectedTeacher) {
+      toast.error('Please select a teacher first');
+      return;
+    }
+
+    setPendingScheduleCell({ day, period });
+    setShowAddTemporarySchedule(true);
+  };
+
+  const handleSubmitTemporaryScheduleEntry = async (e) => {
+    e.preventDefault();
+
+    if (!validateScheduleForm()) {
+      return;
+    }
+
+    if (!pendingScheduleCell || !selectedTeacher) return;
+
+    const teacher = teachers.find(t => t.id === selectedTeacher);
+    if (!teacher) return;
+
+    setSubmittingSchedule(true);
+    try {
+      await createTemporarySchedule({
+        teacher_id: teacher.id,
+        teacher_name: teacher.name,
+        day: pendingScheduleCell.day,
+        period: pendingScheduleCell.period,
+        subject: newScheduleEntry.subject.trim(),
+        class_name: newScheduleEntry.class_name.trim()
+      });
+      toast.success('Temporary schedule override created (expires in 8 hours)');
+      setShowAddTemporarySchedule(false);
+      setNewScheduleEntry({ subject: '', class_name: '' });
+      setFormErrors({});
+      setPendingScheduleCell(null);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to create temporary schedule');
+    } finally {
+      setSubmittingSchedule(false);
+    }
+  };
+
+  const handleUpdateTemporarySchedule = async (e) => {
+    e.preventDefault();
+
+    // Update selectedSchedule with form values
+    const formData = new FormData(e.target);
+    const updatedSchedule = {
+      ...selectedSchedule,
+      subject: formData.get('subject'),
+      class_name: formData.get('class_name')
+    };
+
+    if (!validateEditScheduleForm()) {
+      return;
+    }
+
+    setUpdatingSchedule(true);
+    try {
+      // For temporary schedules, we need to delete and recreate
+      await deleteTemporarySchedule(selectedSchedule.id);
+      await createTemporarySchedule({
+        teacher_id: selectedSchedule.teacher_id,
+        teacher_name: selectedSchedule.teacher_name,
+        day: selectedSchedule.day,
+        period: selectedSchedule.period,
+        subject: updatedSchedule.subject.trim(),
+        class_name: updatedSchedule.class_name.trim()
+      });
+      toast.success('Temporary schedule updated successfully');
+      setShowEditTemporarySchedule(false);
+      setFormErrors({});
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update temporary schedule');
+    } finally {
+      setUpdatingSchedule(false);
+    }
+  };
+
+  const handleDeleteTemporarySchedule = async () => {
+    if (!selectedSchedule) return;
+
+    try {
+      await deleteTemporarySchedule(selectedSchedule.id);
+      toast.success('Temporary schedule deleted successfully');
+      setShowEditTemporarySchedule(false);
+    } catch (error) {
+      toast.error('Failed to delete temporary schedule');
     }
   };
 
@@ -342,7 +371,7 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
         headers: { Authorization: `Bearer ${token}` }
       });
       toast.success('Demo schedules loaded successfully!');
-      fetchData();
+      refetch();
     } catch (error) {
       toast.error('Failed to load demo schedules');
     } finally {
@@ -362,7 +391,7 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
         headers: { Authorization: `Bearer ${token}` }
       });
       toast.success('All schedules cleared');
-      fetchData();
+      refetch();
     } catch (error) {
       toast.error('Failed to clear schedules');
     } finally {
@@ -416,11 +445,15 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="schedules" className="space-y-6">
+        <Tabs defaultValue="default-schedule" className="space-y-6">
           <TabsList className="bg-white dark:bg-slate-800 shadow-sm">
-            <TabsTrigger value="schedules" data-testid="schedules-tab">
+            <TabsTrigger value="default-schedule" data-testid="default-schedule-tab">
               <Calendar className="w-4 h-4 mr-2" />
-              Schedules
+              Default Schedule
+            </TabsTrigger>
+            <TabsTrigger value="temporary-schedule" data-testid="temporary-schedule-tab">
+              <Clock className="w-4 h-4 mr-2" />
+              Temporary Schedule
             </TabsTrigger>
             <TabsTrigger value="teachers" data-testid="teachers-tab">
               <Users className="w-4 h-4 mr-2" />
@@ -432,11 +465,16 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
             </TabsTrigger>
           </TabsList>
 
-          {/* Schedules Tab */}
-          <TabsContent value="schedules" className="space-y-4">
+          {/* Default Schedule Tab */}
+          <TabsContent value="default-schedule" className="space-y-4">
             <div className="glass p-6 rounded-2xl">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Manage Timetable</h2>
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Default Schedule Management</h2>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    View and edit the permanent schedule that teachers see by default
+                  </p>
+                </div>
                 <div className="flex items-center gap-3">
                   <Label className="text-sm text-gray-600 dark:text-gray-400">Select Teacher:</Label>
                   <Select value={selectedTeacher} onValueChange={setSelectedTeacher}>
@@ -462,6 +500,84 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                 isRecentChange={isRecentChange}
                 isAdmin={true}
               />
+            </div>
+          </TabsContent>
+
+          {/* Temporary Schedule Tab */}
+          <TabsContent value="temporary-schedule" className="space-y-4">
+            <div className="glass p-6 rounded-2xl">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Temporary Schedule Overrides</h2>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    Create 8-hour temporary schedule changes that override the default schedule
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Label className="text-sm text-gray-600 dark:text-gray-400">Select Teacher:</Label>
+                  <Select value={selectedTeacher} onValueChange={setSelectedTeacher}>
+                    <SelectTrigger className="w-48" data-testid="temp-teacher-select">
+                      <SelectValue placeholder="Choose teacher" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {teachers.map(teacher => (
+                        <SelectItem key={teacher.id} value={teacher.id}>
+                          {teacher.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Active Temporary Overrides */}
+              {temporarySchedules.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Active Temporary Overrides</h3>
+                  <div className="space-y-3">
+                    {temporarySchedules.map(tempSchedule => (
+                      <div key={tempSchedule.id} className="flex items-center justify-between p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+                        <div>
+                          <p className="font-medium text-gray-900 dark:text-white">
+                            {tempSchedule.teacher_name} - {tempSchedule.day}, Period {tempSchedule.period}
+                          </p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            {tempSchedule.subject} - {tempSchedule.class_name}
+                          </p>
+                          <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                            Expires: {new Date(tempSchedule.valid_until).toLocaleString()}
+                          </p>
+                        </div>
+                        <Button
+                          onClick={() => deleteTemporarySchedule(tempSchedule.id)}
+                          variant="outline"
+                          size="sm"
+                          className="border-red-500 text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Timetable for creating temporary overrides */}
+              <div className="mt-6">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Create Temporary Override</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Click on any cell to create an 8-hour temporary schedule override
+                </p>
+                <TimetableGrid
+                  schedules={temporarySchedules.filter(s => !selectedTeacher || s.teacher_id === selectedTeacher)}
+                  breakAfter={breakAfter}
+                  onCellClick={handleTemporaryScheduleClick}
+                  onEmptyCellClick={handleAddTemporaryScheduleEntry}
+                  isRecentChange={() => false} // Temporary schedules don't show recent changes
+                  isAdmin={true}
+                  showAsTemporary={true}
+                />
+              </div>
             </div>
           </TabsContent>
 
@@ -642,91 +758,6 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
         </Tabs>
       </div>
 
-      {/* Add Teacher Dialog */}
-      <Dialog open={showAddTeacher} onOpenChange={setShowAddTeacher}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add New Teacher</DialogTitle>
-            <DialogDescription>Create a new teacher account</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleAddTeacher} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Full Name</Label>
-              <Input
-                id="name"
-                value={newTeacher.name}
-                onChange={(e) => {
-                  setNewTeacher({...newTeacher, name: e.target.value});
-                  if (formErrors.name) {
-                    setFormErrors(prev => ({ ...prev, name: '' }));
-                  }
-                }}
-                required
-                className={formErrors.name ? 'border-red-500 focus:border-red-500' : ''}
-                data-testid="teacher-name-input"
-              />
-              {formErrors.name && (
-                <p className="text-sm text-red-600 dark:text-red-400">{formErrors.name}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                value={newTeacher.username}
-                onChange={(e) => {
-                  setNewTeacher({...newTeacher, username: e.target.value});
-                  if (formErrors.username) {
-                    setFormErrors(prev => ({ ...prev, username: '' }));
-                  }
-                }}
-                required
-                className={formErrors.username ? 'border-red-500 focus:border-red-500' : ''}
-                data-testid="teacher-username-input"
-              />
-              {formErrors.username && (
-                <p className="text-sm text-red-600 dark:text-red-400">{formErrors.username}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={newTeacher.password}
-                onChange={(e) => {
-                  setNewTeacher({...newTeacher, password: e.target.value});
-                  if (formErrors.password) {
-                    setFormErrors(prev => ({ ...prev, password: '' }));
-                  }
-                }}
-                required
-                className={formErrors.password ? 'border-red-500 focus:border-red-500' : ''}
-                data-testid="teacher-password-input"
-              />
-              {formErrors.password && (
-                <p className="text-sm text-red-600 dark:text-red-400">{formErrors.password}</p>
-              )}
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setShowAddTeacher(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" data-testid="submit-add-teacher" disabled={submittingTeacher}>
-                {submittingTeacher ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                    Adding...
-                  </>
-                ) : (
-                  'Add Teacher'
-                )}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
       {/* Edit Schedule Dialog */}
       <Dialog open={showEditSchedule} onOpenChange={setShowEditSchedule}>
         <DialogContent>
@@ -825,20 +856,20 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
         </DialogContent>
       </Dialog>
 
-      {/* Add Schedule Entry Dialog */}
-      <Dialog open={showAddSchedule} onOpenChange={setShowAddSchedule}>
+      {/* Add Temporary Schedule Entry Dialog */}
+      <Dialog open={showAddTemporarySchedule} onOpenChange={setShowAddTemporarySchedule}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Schedule Entry</DialogTitle>
+            <DialogTitle>Add Temporary Schedule Override</DialogTitle>
             <DialogDescription>
-              {pendingScheduleCell && `Add a new class for ${pendingScheduleCell.day}, Period ${pendingScheduleCell.period}`}
+              {pendingScheduleCell && `Create an 8-hour temporary override for ${pendingScheduleCell.day}, Period ${pendingScheduleCell.period}`}
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmitScheduleEntry} className="space-y-4">
+          <form onSubmit={handleSubmitTemporaryScheduleEntry} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="add-subject">Subject</Label>
+              <Label htmlFor="temp-subject">Subject</Label>
               <Input
-                id="add-subject"
+                id="temp-subject"
                 value={newScheduleEntry.subject}
                 onChange={(e) => {
                   setNewScheduleEntry({...newScheduleEntry, subject: e.target.value});
@@ -848,16 +879,16 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                 }}
                 required
                 className={formErrors.subject ? 'border-red-500 focus:border-red-500' : ''}
-                data-testid="add-subject-input"
+                data-testid="temp-add-subject-input"
               />
               {formErrors.subject && (
                 <p className="text-sm text-red-600 dark:text-red-400">{formErrors.subject}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="add-class_name">Class</Label>
+              <Label htmlFor="temp-class_name">Class</Label>
               <Input
-                id="add-class_name"
+                id="temp-class_name"
                 value={newScheduleEntry.class_name}
                 onChange={(e) => {
                   setNewScheduleEntry({...newScheduleEntry, class_name: e.target.value});
@@ -867,32 +898,124 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                 }}
                 required
                 className={formErrors.class_name ? 'border-red-500 focus:border-red-500' : ''}
-                data-testid="add-class-input"
+                data-testid="temp-add-class-input"
               />
               {formErrors.class_name && (
                 <p className="text-sm text-red-600 dark:text-red-400">{formErrors.class_name}</p>
               )}
             </div>
+            <div className="bg-orange-50 dark:bg-orange-900/20 p-3 rounded-lg border border-orange-200 dark:border-orange-800">
+              <p className="text-sm text-orange-800 dark:text-orange-200">
+                <strong>Note:</strong> This temporary override will expire in 8 hours and automatically revert to the default schedule.
+              </p>
+            </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => {
-                setShowAddSchedule(false);
+                setShowAddTemporarySchedule(false);
                 setNewScheduleEntry({ subject: '', class_name: '' });
                 setPendingScheduleCell(null);
               }}>
                 Cancel
               </Button>
-              <Button type="submit" data-testid="submit-add-schedule" disabled={submittingSchedule}>
+              <Button type="submit" data-testid="temp-submit-add-schedule" disabled={submittingSchedule}>
                 {submittingSchedule ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                    Adding...
+                    Creating...
                   </>
                 ) : (
-                  'Add Schedule'
+                  'Create Override'
                 )}
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Temporary Schedule Dialog */}
+      <Dialog open={showEditTemporarySchedule} onOpenChange={setShowEditTemporarySchedule}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Temporary Schedule Override</DialogTitle>
+            <DialogDescription>
+              {selectedSchedule && `${selectedSchedule.day}, Period ${selectedSchedule.period}`}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedSchedule && (
+            <form onSubmit={handleUpdateTemporarySchedule} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="temp-edit-subject">Subject</Label>
+                <Input
+                  id="temp-edit-subject"
+                  name="subject"
+                  defaultValue={selectedSchedule.subject}
+                  onChange={(e) => {
+                    setSelectedSchedule({...selectedSchedule, subject: e.target.value});
+                    if (formErrors.editSubject) {
+                      setFormErrors(prev => ({ ...prev, editSubject: '' }));
+                    }
+                  }}
+                  required
+                  className={formErrors.editSubject ? 'border-red-500 focus:border-red-500' : ''}
+                  data-testid="temp-edit-subject-input"
+                />
+                {formErrors.editSubject && (
+                  <p className="text-sm text-red-600 dark:text-red-400">{formErrors.editSubject}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="temp-edit-class_name">Class</Label>
+                <Input
+                  id="temp-edit-class_name"
+                  name="class_name"
+                  defaultValue={selectedSchedule.class_name}
+                  onChange={(e) => {
+                    setSelectedSchedule({...selectedSchedule, class_name: e.target.value});
+                    if (formErrors.editClassName) {
+                      setFormErrors(prev => ({ ...prev, editClassName: '' }));
+                    }
+                  }}
+                  required
+                  className={formErrors.editClassName ? 'border-red-500 focus:border-red-500' : ''}
+                  data-testid="temp-edit-class-input"
+                />
+                {formErrors.editClassName && (
+                  <p className="text-sm text-red-600 dark:text-red-400">{formErrors.editClassName}</p>
+                )}
+              </div>
+              <div className="bg-orange-50 dark:bg-orange-900/20 p-3 rounded-lg border border-orange-200 dark:border-orange-800">
+                <p className="text-sm text-orange-800 dark:text-orange-200">
+                  Expires: {selectedSchedule.valid_until ? new Date(selectedSchedule.valid_until).toLocaleString() : 'Unknown'}
+                </p>
+              </div>
+              <div className="flex justify-between">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleDeleteTemporarySchedule}
+                  data-testid="temp-delete-schedule-button"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete Override
+                </Button>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => setShowEditTemporarySchedule(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" data-testid="temp-save-schedule-button" disabled={updatingSchedule}>
+                    {updatingSchedule ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                        Saving...
+                      </>
+                    ) : (
+                      'Save Changes'
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
 

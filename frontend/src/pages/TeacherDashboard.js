@@ -10,66 +10,46 @@ import { LogOut, Moon, Sun, RefreshCw, Clock, QrCode, Calendar, Activity, User }
 import TimetableGrid from '../components/TimetableGrid';
 import ChangeLogPanel from '../components/ChangeLogPanel';
 import QRCodeModal from '../components/QRCodeModal';
+import { useEffectiveSchedules } from '../hooks/useScheduleManagement';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const TeacherDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDarkMode }) => {
   const navigate = useNavigate();
+  const { effectiveSchedules, breakAfter, changelogs, loading: schedulesLoading, refetch: refetchSchedules } = useEffectiveSchedules(token);
   const [schedules, setSchedules] = useState([]);
-  const [breakAfter, setBreakAfter] = useState(3);
-  const [changelogs, setChangelogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [showQRModal, setShowQRModal] = useState(false);
 
   useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      const [schedulesRes, settingsRes, changelogsRes] = await Promise.all([
-        axios.get(`${API}/schedules`, {
-          headers: { Authorization: `Bearer ${token}` }
-        }),
-        axios.get(`${API}/settings/break-period`),
-        axios.get(`${API}/changelogs`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-      ]);
-
-      setSchedules(schedulesRes.data);
-      setBreakAfter(settingsRes.data.break_after_period);
-      setChangelogs(changelogsRes.data);
-      setLastRefresh(new Date());
-    } catch (error) {
-      toast.error('Failed to load schedule');
-    } finally {
-      setLoading(false);
-    }
-  };
+    // Update schedules when effectiveSchedules changes
+    setSchedules(effectiveSchedules);
+    setLoading(schedulesLoading);
+  }, [effectiveSchedules, schedulesLoading]);
 
   const handleRefresh = () => {
-    setLoading(true);
-    fetchData();
+    refetchSchedules();
+    setLastRefresh(new Date());
     toast.success('Schedule refreshed');
   };
 
-  const isRecentChange = (updatedAt) => {
-    if (!updatedAt) return false;
+  const isRecentChange = (scheduleId) => {
+    if (!scheduleId) return false;
 
-    const updatedDate = new Date(updatedAt);
-    const now = new Date();
-    const diffMs = now - updatedDate;
-
-    // Consider it recent if updated within the last 24 hours
-    // But exclude schedules that were likely loaded as demo data
-    // (demo data timestamps are usually very close together)
+    // Check if this schedule has a recent changelog entry
     const recentThreshold = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-    const demoThreshold = 5 * 60 * 1000; // 5 minutes - if updated very recently, likely demo data
+    const now = new Date();
 
-    return diffMs < recentThreshold && diffMs > demoThreshold;
+    return changelogs.some(log => {
+      if (log.schedule_id !== scheduleId) return false;
+      
+      const logDate = new Date(log.timestamp);
+      const diffMs = now - logDate;
+      
+      return diffMs < recentThreshold;
+    });
   };
 
   const scheduleStats = {

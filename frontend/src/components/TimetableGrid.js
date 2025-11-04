@@ -1,7 +1,7 @@
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
 
-const TimetableGrid = ({ schedules, breakAfter, onCellClick, onEmptyCellClick, isRecentChange, isAdmin }) => {
+const TimetableGrid = ({ schedules, breakAfter, onCellClick, onEmptyCellClick, isRecentChange, isAdmin, showAsTemporary }) => {
   const getScheduleForCell = (day, period) => {
     return schedules.find(s => s.day === day && s.period === period);
   };
@@ -106,6 +106,7 @@ const TimetableGrid = ({ schedules, breakAfter, onCellClick, onEmptyCellClick, i
                 const schedule = getScheduleForCell(day, period);
                 const isRecent = schedule && isRecentChange && isRecentChange(schedule.updated_at);
                 const teacherColor = schedule ? getTeacherColor(schedule.teacher_name) : '';
+                const isTemporary = schedule && schedule.valid_until; // Temporary schedules have valid_until field
 
                 return (
                   <div
@@ -113,7 +114,9 @@ const TimetableGrid = ({ schedules, breakAfter, onCellClick, onEmptyCellClick, i
                     onClick={() => handleCellClick(schedule, day, period)}
                     className={`timetable-cell transition-all duration-200 border border-gray-200 dark:border-gray-700 ${
                       schedule
-                        ? `cursor-pointer hover:shadow-lg hover:scale-[1.02] hover:z-10 ${teacherColor} border-2`
+                        ? `cursor-pointer hover:shadow-lg hover:scale-[1.02] hover:z-10 ${teacherColor} ${
+                            isTemporary ? 'border-orange-400 border-2' : 'border-2'
+                          }`
                         : isAdmin
                         ? 'cursor-pointer hover:bg-green-50 dark:hover:bg-blue-900/20 hover:border-green-300 dark:hover:border-blue-600'
                         : 'bg-gray-50 dark:bg-gray-900/50'

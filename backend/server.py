@@ -249,7 +249,7 @@ class ChangeLog(BaseModel):
     changed_by: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class DefaultScheduleCreate(BaseModel):
+class TemporaryScheduleCreate(BaseModel):
     teacher_id: str
     teacher_name: str
     day: str
@@ -258,7 +258,7 @@ class DefaultScheduleCreate(BaseModel):
     class_name: str
     valid_until: Optional[datetime] = None
 
-class DefaultSchedule(BaseModel):
+class TemporarySchedule(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     teacher_id: str
@@ -1134,14 +1134,14 @@ async def delete_schedule(schedule_id: str, current_user: User = Depends(get_cur
 
         return {"message": "Schedule deleted successfully"}
 
-# ============ Default Schedules Routes ============
+# ============ Temporary Schedules Routes ============
 
-@api_router.get("/default-schedules", response_model=List[DefaultSchedule])
-async def get_default_schedules(
+@api_router.get("/temporary-schedules", response_model=List[TemporarySchedule])
+async def get_temporary_schedules(
     current_user: User = Depends(get_current_user),
     active_only: bool = True
 ):
-    """Get all default schedules (Admin only)"""
+    """Get all temporary schedules (Admin only)"""
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Admin access required")
 
@@ -1149,14 +1149,14 @@ async def get_default_schedules(
         cursor = conn.cursor()
         if active_only:
             cursor.execute("""
-                SELECT * FROM default_schedules 
-                WHERE is_active = 1 
+                SELECT * FROM default_schedules
+                WHERE is_active = 1
                 AND (valid_until IS NULL OR valid_until >= ?)
                 ORDER BY teacher_name, day, period
             """, (datetime.now(timezone.utc).isoformat(),))
         else:
             cursor.execute("SELECT * FROM default_schedules ORDER BY created_at DESC")
-        
+
         schedules = []
         for row in cursor.fetchall():
             schedule_dict = dict(row)
@@ -1168,32 +1168,32 @@ async def get_default_schedules(
             # Convert integer to boolean
             schedule_dict['is_active'] = bool(schedule_dict.get('is_active', 1))
             schedules.append(schedule_dict)
-        
+
         return schedules
 
-@api_router.post("/default-schedules", response_model=DefaultSchedule)
-async def create_default_schedule(
-    schedule: DefaultScheduleCreate,
+@api_router.post("/temporary-schedules", response_model=TemporarySchedule)
+async def create_temporary_schedule(
+    schedule: TemporaryScheduleCreate,
     current_user: User = Depends(get_current_user)
 ):
-    """Create a new default schedule (Admin only) - Valid for 24 hours by default"""
+    """Create a new temporary schedule override (Admin only) - Valid for 8 hours by default"""
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Admin access required")
 
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            
-            # Set valid_until to 24 hours from now if not specified
+
+            # Set valid_until to 8 hours from now if not specified
             valid_until = schedule.valid_until
             if not valid_until:
-                valid_until = datetime.now(timezone.utc) + timedelta(hours=24)
-            
+                valid_until = datetime.now(timezone.utc) + timedelta(hours=8)
+
             schedule_id = str(uuid.uuid4())
             created_at = datetime.now(timezone.utc)
-            
+
             cursor.execute("""
-                INSERT INTO default_schedules 
+                INSERT INTO default_schedules
                 (id, teacher_id, teacher_name, day, period, subject, class_name, is_active, valid_until, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -1208,11 +1208,11 @@ async def create_default_schedule(
                 valid_until.isoformat() if valid_until else None,
                 created_at.isoformat()
             ))
-            
+
             conn.commit()
-            
+
             # Return the created schedule
-            return DefaultSchedule(
+            return TemporarySchedule(
                 id=schedule_id,
                 teacher_id=schedule.teacher_id,
                 teacher_name=schedule.teacher_name,
@@ -1224,148 +1224,93 @@ async def create_default_schedule(
                 valid_until=valid_until,
                 created_at=created_at
             )
-            
+
     except Exception as e:
-        logger.error(f"Error creating default schedule: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to create default schedule: {str(e)}")
+        logger.error(f"Error creating temporary schedule: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create temporary schedule: {str(e)}")
 
-@api_router.post("/default-schedules/apply", status_code=200)
-async def apply_default_schedules(current_user: User = Depends(get_current_user)):
-    """Apply active default schedules to the main schedule (Admin only)"""
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get active default schedules
-            cursor.execute("""
-                SELECT * FROM default_schedules 
-                WHERE is_active = 1 
-                AND (valid_until IS NULL OR valid_until >= ?)
-            """, (datetime.now(timezone.utc).isoformat(),))
-            
-            default_schedules = [dict(row) for row in cursor.fetchall()]
-            
-            if not default_schedules:
-                return {"status": "success", "message": "No active default schedules to apply", "schedules_applied": 0}
-            
-            # Clear existing schedules
-            cursor.execute("DELETE FROM schedules")
-            
-            # Apply default schedules
-            for schedule in default_schedules:
-                schedule_id = str(uuid.uuid4())
-                updated_at = datetime.now(timezone.utc).isoformat()
-                
-                cursor.execute("""
-                    INSERT INTO schedules 
-                    (id, teacher_id, teacher_name, day, period, subject, class_name, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    schedule_id,
-                    schedule['teacher_id'],
-                    schedule['teacher_name'],
-                    schedule['day'],
-                    schedule['period'],
-                    schedule['subject'],
-                    schedule['class_name'],
-                    updated_at
-                ))
-            
-            conn.commit()
-            
-        return {
-            "status": "success", 
-            "message": f"Successfully applied {len(default_schedules)} default schedules",
-            "schedules_applied": len(default_schedules)
-        }
-    
-    except Exception as e:
-        logger.error(f"Error applying default schedules: {str(e)}")
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to apply default schedules: {str(e)}"
-        )
-
-@api_router.delete("/default-schedules/{schedule_id}")
-async def delete_default_schedule(schedule_id: str, current_user: User = Depends(get_current_user)):
-    """Delete a default schedule (Admin only)"""
+@api_router.delete("/temporary-schedules/{schedule_id}")
+async def delete_temporary_schedule(schedule_id: str, current_user: User = Depends(get_current_user)):
+    """Delete a temporary schedule (Admin only)"""
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Admin access required")
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
+
         # Check if schedule exists
         cursor.execute("SELECT * FROM default_schedules WHERE id = ?", (schedule_id,))
         if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Default schedule not found")
-        
+            raise HTTPException(status_code=404, detail="Temporary schedule not found")
+
         cursor.execute("DELETE FROM default_schedules WHERE id = ?", (schedule_id,))
         conn.commit()
 
-    return {"message": "Default schedule deleted successfully"}
+    return {"message": "Temporary schedule deleted successfully"}
 
-@api_router.post("/default-schedules/load-from-current")
-async def load_defaults_from_current_schedule(current_user: User = Depends(get_current_user)):
-    """Load current schedules as default schedules (Admin only)"""
-    if current_user.role != 'admin':
-        raise HTTPException(status_code=403, detail="Admin access required")
+@api_router.get("/effective-schedules", response_model=List[ScheduleEntry])
+async def get_effective_schedules(current_user: User = Depends(get_current_user)):
+    """Get effective schedules (default + active temporary overrides) for teachers"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
 
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get all current schedules
-            cursor.execute("SELECT * FROM schedules")
-            current_schedules = [dict(row) for row in cursor.fetchall()]
-            
-            if not current_schedules:
-                return {"status": "success", "message": "No schedules to load", "schedules_loaded": 0}
-            
-            # Clear existing default schedules
-            cursor.execute("DELETE FROM default_schedules")
-            
-            # Create default schedules from current schedules
-            valid_until = datetime.now(timezone.utc) + timedelta(hours=24)
-            created_at = datetime.now(timezone.utc)
-            
-            for schedule in current_schedules:
-                default_id = str(uuid.uuid4())
-                
-                cursor.execute("""
-                    INSERT INTO default_schedules 
-                    (id, teacher_id, teacher_name, day, period, subject, class_name, is_active, valid_until, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    default_id,
-                    schedule['teacher_id'],
-                    schedule['teacher_name'],
-                    schedule['day'],
-                    schedule['period'],
-                    schedule['subject'],
-                    schedule['class_name'],
-                    1,
-                    valid_until.isoformat(),
-                    created_at.isoformat()
-                ))
-            
-            conn.commit()
-            
-        return {
-            "status": "success",
-            "message": f"Successfully loaded {len(current_schedules)} schedules as defaults",
-            "schedules_loaded": len(current_schedules)
-        }
-    
-    except Exception as e:
-        logger.error(f"Error loading defaults from current schedule: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to load defaults: {str(e)}"
-        )
+        # Get default schedules (from schedules table)
+        cursor.execute("SELECT * FROM schedules")
+        default_schedules = [dict(row) for row in cursor.fetchall()]
+
+        # Get active temporary schedules
+        cursor.execute("""
+            SELECT * FROM default_schedules
+            WHERE is_active = 1
+            AND (valid_until IS NULL OR valid_until >= ?)
+        """, (datetime.now(timezone.utc).isoformat(),))
+
+        temp_schedules = [dict(row) for row in cursor.fetchall()]
+
+        # Convert to ScheduleEntry format and merge
+        effective_schedules = []
+
+        # Add all default schedules
+        for schedule in default_schedules:
+            schedule_dict = dict(schedule)
+            if isinstance(schedule_dict.get('updated_at'), str):
+                schedule_dict['updated_at'] = datetime.fromisoformat(schedule_dict['updated_at'])
+            effective_schedules.append(ScheduleEntry(**schedule_dict))
+
+        # Override with temporary schedules where they exist
+        for temp_schedule in temp_schedules:
+            # Find if there's a default schedule for the same teacher, day, period
+            existing_index = None
+            for i, schedule in enumerate(effective_schedules):
+                if (schedule.teacher_id == temp_schedule['teacher_id'] and
+                    schedule.day == temp_schedule['day'] and
+                    schedule.period == temp_schedule['period']):
+                    existing_index = i
+                    break
+
+            # Create temporary schedule entry
+            temp_entry = ScheduleEntry(
+                id=temp_schedule['id'],
+                teacher_id=temp_schedule['teacher_id'],
+                teacher_name=temp_schedule['teacher_name'],
+                day=temp_schedule['day'],
+                period=temp_schedule['period'],
+                subject=temp_schedule['subject'],
+                class_name=temp_schedule['class_name'],
+                updated_at=datetime.fromisoformat(temp_schedule['created_at']) if isinstance(temp_schedule.get('created_at'), str) else temp_schedule['created_at']
+            )
+
+            if existing_index is not None:
+                # Replace the default schedule with temporary
+                effective_schedules[existing_index] = temp_entry
+            else:
+                # Add new temporary schedule
+                effective_schedules.append(temp_entry)
+
+        # Sort by teacher name, day, period for consistent display
+        effective_schedules.sort(key=lambda x: (x.teacher_name, x.day, x.period))
+
+        return effective_schedules
 
 # ============ Settings Routes ============
 
