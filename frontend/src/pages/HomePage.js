@@ -7,9 +7,9 @@ const HomePage = ({ exhibitionMode, setExhibitionMode, darkMode, setDarkMode, is
   const navigate = useNavigate();
 
   const handleGetStarted = () => {
-    if (isAuthenticated) {
-      // User is already authenticated, let ProtectedRoute handle navigation
-      return;
+    if (isAuthenticated && user) {
+      // Navigate authenticated users to their respective dashboards
+      navigate(user.role === 'admin' ? '/admin' : '/dashboard');
     } else {
       navigate('/login');
     }

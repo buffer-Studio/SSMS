@@ -29,7 +29,7 @@ class DatabaseVerifier:
         if 'import sqlite3' in content:
             print("✅ SQLite3 import found in server.py")
         else:
-            print("❌ SQLite3 import NOT found in server.py")
+            print("❌ SQLite3 import NOT` found in server.py")
             return False
 
         if 'import pymongo' in content or 'from motor' in content or 'mongodb' in content.lower():

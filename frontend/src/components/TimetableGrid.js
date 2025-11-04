@@ -49,17 +49,17 @@ const TimetableGrid = ({ schedules, breakAfter, onCellClick, onEmptyCellClick, i
   };
 
   return (
-    <div className="w-full overflow-x-auto">
-      <div className="min-w-[900px] max-w-full">
+    <div className="w-full overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 scrollbar-track-gray-100 dark:scrollbar-track-gray-800">
+      <div className="min-w-[800px] w-full">
         <div
           className="timetable-grid shadow-lg rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700"
           style={{
-            gridTemplateColumns: `140px repeat(${periods.length}, 1fr)`
+            gridTemplateColumns: `100px repeat(${periods.length}, minmax(70px, 1fr))`
           }}
         >
           {/* Header row */}
           <div className="timetable-cell font-bold text-center bg-gradient-to-r from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 border-b-2 border-slate-300 dark:border-slate-600">
-            <span className="text-slate-700 dark:text-slate-300 text-sm uppercase tracking-wide">Day / Period</span>
+            <span className="text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wide">Day/Period</span>
           </div>
           {periods.map(period => (
             <div

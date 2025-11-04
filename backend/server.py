@@ -39,9 +39,9 @@ def get_db_connection():
 class SimpleRateLimiter:
     def __init__(self):
         self.requests = defaultdict(list)
-        self.max_requests = 30
+        self.max_requests = 100  # Increased from 30 to 100
         self.window_seconds = 60
-        self.login_max_requests = 5
+        self.login_max_requests = 10  # Increased from 5 to 10
 
     def is_allowed(self, key: str, is_login: bool = False) -> bool:
         now = time.time()
@@ -129,6 +129,23 @@ def init_database():
             )
         """)
 
+        # Create default_schedules table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS default_schedules (
+                id TEXT PRIMARY KEY,
+                teacher_id TEXT NOT NULL,
+                teacher_name TEXT NOT NULL,
+                day TEXT NOT NULL,
+                period INTEGER NOT NULL,
+                subject TEXT NOT NULL,
+                class_name TEXT NOT NULL,
+                is_active INTEGER DEFAULT 1,
+                valid_until TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (teacher_id) REFERENCES users (id)
+            )
+        """)
+
         # Create indexes for performance
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_schedules_teacher
@@ -148,6 +165,16 @@ def init_database():
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_changelogs_teacher
             ON changelogs(teacher_id, timestamp)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_default_schedules_teacher
+            ON default_schedules(teacher_id, is_active)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_default_schedules_active
+            ON default_schedules(is_active, valid_until)
         """)
 
         conn.commit()
@@ -221,6 +248,28 @@ class ChangeLog(BaseModel):
     new_value: str
     changed_by: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class DefaultScheduleCreate(BaseModel):
+    teacher_id: str
+    teacher_name: str
+    day: str
+    period: int = Field(ge=1, le=8)  # Ensure period is between 1 and 8
+    subject: str
+    class_name: str
+    valid_until: Optional[datetime] = None
+
+class DefaultSchedule(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    teacher_id: str
+    teacher_name: str
+    day: str
+    period: int
+    subject: str
+    class_name: str
+    is_active: bool = True
+    valid_until: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 # ============ Helper Functions ============
 
@@ -402,6 +451,7 @@ async def load_demo_schedules():
                 # Tuesday - Maths and Physics focus
                 {"day": "Tuesday", "period": 1, "subject": "Mathematics", "class_name": "Grade 11A"},
                 {"day": "Tuesday", "period": 2, "subject": "Mathematics", "class_name": "Grade 11B"},
+                {"day": "Tuesday", "period": 3, "subject": "Physics", "class_name": "Grade 9B"},
                 {"day": "Tuesday", "period": 4, "subject": "Physics", "class_name": "Grade 10A"},
                 {"day": "Tuesday", "period": 5, "subject": "Physics", "class_name": "Grade 10B"},
                 {"day": "Tuesday", "period": 6, "subject": "Mathematics", "class_name": "Grade 12A"},
@@ -410,6 +460,7 @@ async def load_demo_schedules():
                 # Wednesday - Maths and Physics focus
                 {"day": "Wednesday", "period": 1, "subject": "Mathematics", "class_name": "Grade 10A"},
                 {"day": "Wednesday", "period": 2, "subject": "Physics", "class_name": "Grade 11A"},
+                {"day": "Wednesday", "period": 3, "subject": "Mathematics", "class_name": "Grade 12B"},
                 {"day": "Wednesday", "period": 4, "subject": "Mathematics", "class_name": "Grade 9B"},
                 {"day": "Wednesday", "period": 5, "subject": "Physics", "class_name": "Grade 12A"},
                 {"day": "Wednesday", "period": 6, "subject": "Mathematics", "class_name": "Grade 10B"},
@@ -418,6 +469,7 @@ async def load_demo_schedules():
                 # Thursday - Maths and Physics focus
                 {"day": "Thursday", "period": 1, "subject": "Physics", "class_name": "Grade 10A"},
                 {"day": "Thursday", "period": 2, "subject": "Mathematics", "class_name": "Grade 11A"},
+                {"day": "Thursday", "period": 3, "subject": "Mathematics", "class_name": "Grade 9A"},
                 {"day": "Thursday", "period": 4, "subject": "Physics", "class_name": "Grade 9B"},
                 {"day": "Thursday", "period": 5, "subject": "Mathematics", "class_name": "Grade 12A"},
                 {"day": "Thursday", "period": 6, "subject": "Physics", "class_name": "Grade 10B"},
@@ -426,6 +478,7 @@ async def load_demo_schedules():
                 # Friday - Maths and Physics focus
                 {"day": "Friday", "period": 1, "subject": "Mathematics", "class_name": "Grade 10A"},
                 {"day": "Friday", "period": 2, "subject": "Physics", "class_name": "Grade 11A"},
+                {"day": "Friday", "period": 3, "subject": "Physics", "class_name": "Grade 9B"},
                 {"day": "Friday", "period": 4, "subject": "Mathematics", "class_name": "Grade 9A"},
                 {"day": "Friday", "period": 5, "subject": "Physics", "class_name": "Grade 12A"},
                 {"day": "Friday", "period": 6, "subject": "Mathematics", "class_name": "Grade 10B"},
@@ -445,6 +498,7 @@ async def load_demo_schedules():
                 # Tuesday - Computer Science and Lab Sessions
                 {"day": "Tuesday", "period": 1, "subject": "Computer Science", "class_name": "Grade 11A"},
                 {"day": "Tuesday", "period": 2, "subject": "Computer Science", "class_name": "Grade 11B"},
+                {"day": "Tuesday", "period": 3, "subject": "Lab Session", "class_name": "Grade 9B"},
                 {"day": "Tuesday", "period": 4, "subject": "Lab Session", "class_name": "Grade 10A"},
                 {"day": "Tuesday", "period": 5, "subject": "Lab Session", "class_name": "Grade 10B"},
                 {"day": "Tuesday", "period": 6, "subject": "Computer Science", "class_name": "Grade 12A"},
@@ -453,6 +507,7 @@ async def load_demo_schedules():
                 # Wednesday - Computer Science and Lab Sessions
                 {"day": "Wednesday", "period": 1, "subject": "Computer Science", "class_name": "Grade 10A"},
                 {"day": "Wednesday", "period": 2, "subject": "Lab Session", "class_name": "Grade 11A"},
+                {"day": "Wednesday", "period": 3, "subject": "Computer Science", "class_name": "Grade 12B"},
                 {"day": "Wednesday", "period": 4, "subject": "Computer Science", "class_name": "Grade 9B"},
                 {"day": "Wednesday", "period": 5, "subject": "Lab Session", "class_name": "Grade 12A"},
                 {"day": "Wednesday", "period": 6, "subject": "Computer Science", "class_name": "Grade 10B"},
@@ -461,6 +516,7 @@ async def load_demo_schedules():
                 # Thursday - Computer Science and Lab Sessions
                 {"day": "Thursday", "period": 1, "subject": "Lab Session", "class_name": "Grade 10A"},
                 {"day": "Thursday", "period": 2, "subject": "Computer Science", "class_name": "Grade 11A"},
+                {"day": "Thursday", "period": 3, "subject": "Computer Science", "class_name": "Grade 9A"},
                 {"day": "Thursday", "period": 4, "subject": "Lab Session", "class_name": "Grade 9B"},
                 {"day": "Thursday", "period": 5, "subject": "Computer Science", "class_name": "Grade 12A"},
                 {"day": "Thursday", "period": 6, "subject": "Lab Session", "class_name": "Grade 10B"},
@@ -469,6 +525,7 @@ async def load_demo_schedules():
                 # Friday - Computer Science and Lab Sessions
                 {"day": "Friday", "period": 1, "subject": "Computer Science", "class_name": "Grade 10A"},
                 {"day": "Friday", "period": 2, "subject": "Lab Session", "class_name": "Grade 11A"},
+                {"day": "Friday", "period": 3, "subject": "Lab Session", "class_name": "Grade 9B"},
                 {"day": "Friday", "period": 4, "subject": "Computer Science", "class_name": "Grade 9A"},
                 {"day": "Friday", "period": 5, "subject": "Lab Session", "class_name": "Grade 12A"},
                 {"day": "Friday", "period": 6, "subject": "Computer Science", "class_name": "Grade 10B"},
@@ -488,6 +545,7 @@ async def load_demo_schedules():
                 # Tuesday - Maths, Physics, and Physics Lab
                 {"day": "Tuesday", "period": 1, "subject": "Mathematics", "class_name": "Grade 11A"},
                 {"day": "Tuesday", "period": 2, "subject": "Physics", "class_name": "Grade 11B"},
+                {"day": "Tuesday", "period": 3, "subject": "Physics Lab", "class_name": "Grade 9B"},
                 {"day": "Tuesday", "period": 4, "subject": "Physics Lab", "class_name": "Grade 10A"},
                 {"day": "Tuesday", "period": 5, "subject": "Mathematics", "class_name": "Grade 10B"},
                 {"day": "Tuesday", "period": 6, "subject": "Physics", "class_name": "Grade 12A"},
@@ -496,6 +554,7 @@ async def load_demo_schedules():
                 # Wednesday - Maths, Physics, and Physics Lab
                 {"day": "Wednesday", "period": 1, "subject": "Mathematics", "class_name": "Grade 10A"},
                 {"day": "Wednesday", "period": 2, "subject": "Physics Lab", "class_name": "Grade 11A"},
+                {"day": "Wednesday", "period": 3, "subject": "Mathematics", "class_name": "Grade 12B"},
                 {"day": "Wednesday", "period": 4, "subject": "Physics", "class_name": "Grade 9B"},
                 {"day": "Wednesday", "period": 5, "subject": "Mathematics", "class_name": "Grade 12A"},
                 {"day": "Wednesday", "period": 6, "subject": "Physics Lab", "class_name": "Grade 10B"},
@@ -504,6 +563,7 @@ async def load_demo_schedules():
                 # Thursday - Maths, Physics, and Physics Lab
                 {"day": "Thursday", "period": 1, "subject": "Physics", "class_name": "Grade 10A"},
                 {"day": "Thursday", "period": 2, "subject": "Mathematics", "class_name": "Grade 11A"},
+                {"day": "Thursday", "period": 3, "subject": "Mathematics", "class_name": "Grade 9A"},
                 {"day": "Thursday", "period": 4, "subject": "Physics Lab", "class_name": "Grade 9B"},
                 {"day": "Thursday", "period": 5, "subject": "Physics", "class_name": "Grade 12A"},
                 {"day": "Thursday", "period": 6, "subject": "Mathematics", "class_name": "Grade 10B"},
@@ -512,6 +572,7 @@ async def load_demo_schedules():
                 # Friday - Maths, Physics, and Physics Lab
                 {"day": "Friday", "period": 1, "subject": "Mathematics", "class_name": "Grade 10A"},
                 {"day": "Friday", "period": 2, "subject": "Physics Lab", "class_name": "Grade 11A"},
+                {"day": "Friday", "period": 3, "subject": "Physics Lab", "class_name": "Grade 9B"},
                 {"day": "Friday", "period": 4, "subject": "Physics", "class_name": "Grade 9A"},
                 {"day": "Friday", "period": 5, "subject": "Mathematics", "class_name": "Grade 12A"},
                 {"day": "Friday", "period": 6, "subject": "Physics Lab", "class_name": "Grade 10B"},
@@ -531,6 +592,7 @@ async def load_demo_schedules():
                 # Tuesday - English, Grammar, Drama, Accounts, Commerce
                 {"day": "Tuesday", "period": 1, "subject": "Accounts", "class_name": "Grade 11A"},
                 {"day": "Tuesday", "period": 2, "subject": "Commerce", "class_name": "Grade 11B"},
+                {"day": "Tuesday", "period": 3, "subject": "Drama", "class_name": "Grade 9B"},
                 {"day": "Tuesday", "period": 4, "subject": "English", "class_name": "Grade 10A"},
                 {"day": "Tuesday", "period": 5, "subject": "Grammar", "class_name": "Grade 10B"},
                 {"day": "Tuesday", "period": 6, "subject": "Drama", "class_name": "Grade 12A"},
@@ -539,6 +601,7 @@ async def load_demo_schedules():
                 # Wednesday - English, Grammar, Drama, Accounts, Commerce
                 {"day": "Wednesday", "period": 1, "subject": "English", "class_name": "Grade 10A"},
                 {"day": "Wednesday", "period": 2, "subject": "Drama", "class_name": "Grade 11A"},
+                {"day": "Wednesday", "period": 3, "subject": "Commerce", "class_name": "Grade 12B"},
                 {"day": "Wednesday", "period": 4, "subject": "Grammar", "class_name": "Grade 9B"},
                 {"day": "Wednesday", "period": 5, "subject": "Accounts", "class_name": "Grade 12A"},
                 {"day": "Wednesday", "period": 6, "subject": "Commerce", "class_name": "Grade 10B"},
@@ -547,6 +610,7 @@ async def load_demo_schedules():
                 # Thursday - English, Grammar, Drama, Accounts, Commerce
                 {"day": "Thursday", "period": 1, "subject": "Grammar", "class_name": "Grade 10A"},
                 {"day": "Thursday", "period": 2, "subject": "Accounts", "class_name": "Grade 11A"},
+                {"day": "Thursday", "period": 3, "subject": "English", "class_name": "Grade 9A"},
                 {"day": "Thursday", "period": 4, "subject": "Commerce", "class_name": "Grade 9B"},
                 {"day": "Thursday", "period": 5, "subject": "English", "class_name": "Grade 12A"},
                 {"day": "Thursday", "period": 6, "subject": "Drama", "class_name": "Grade 10B"},
@@ -555,6 +619,7 @@ async def load_demo_schedules():
                 # Friday - English, Grammar, Drama, Accounts, Commerce
                 {"day": "Friday", "period": 1, "subject": "English", "class_name": "Grade 10A"},
                 {"day": "Friday", "period": 2, "subject": "Drama", "class_name": "Grade 11A"},
+                {"day": "Friday", "period": 3, "subject": "Grammar", "class_name": "Grade 9B"},
                 {"day": "Friday", "period": 4, "subject": "Commerce", "class_name": "Grade 9A"},
                 {"day": "Friday", "period": 5, "subject": "Grammar", "class_name": "Grade 12A"},
                 {"day": "Friday", "period": 6, "subject": "Accounts", "class_name": "Grade 10B"},
@@ -1069,6 +1134,239 @@ async def delete_schedule(schedule_id: str, current_user: User = Depends(get_cur
 
         return {"message": "Schedule deleted successfully"}
 
+# ============ Default Schedules Routes ============
+
+@api_router.get("/default-schedules", response_model=List[DefaultSchedule])
+async def get_default_schedules(
+    current_user: User = Depends(get_current_user),
+    active_only: bool = True
+):
+    """Get all default schedules (Admin only)"""
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        if active_only:
+            cursor.execute("""
+                SELECT * FROM default_schedules 
+                WHERE is_active = 1 
+                AND (valid_until IS NULL OR valid_until >= ?)
+                ORDER BY teacher_name, day, period
+            """, (datetime.now(timezone.utc).isoformat(),))
+        else:
+            cursor.execute("SELECT * FROM default_schedules ORDER BY created_at DESC")
+        
+        schedules = []
+        for row in cursor.fetchall():
+            schedule_dict = dict(row)
+            # Convert string dates back to datetime
+            if schedule_dict.get('valid_until'):
+                schedule_dict['valid_until'] = datetime.fromisoformat(schedule_dict['valid_until'])
+            if schedule_dict.get('created_at'):
+                schedule_dict['created_at'] = datetime.fromisoformat(schedule_dict['created_at'])
+            # Convert integer to boolean
+            schedule_dict['is_active'] = bool(schedule_dict.get('is_active', 1))
+            schedules.append(schedule_dict)
+        
+        return schedules
+
+@api_router.post("/default-schedules", response_model=DefaultSchedule)
+async def create_default_schedule(
+    schedule: DefaultScheduleCreate,
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new default schedule (Admin only) - Valid for 24 hours by default"""
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Set valid_until to 24 hours from now if not specified
+            valid_until = schedule.valid_until
+            if not valid_until:
+                valid_until = datetime.now(timezone.utc) + timedelta(hours=24)
+            
+            schedule_id = str(uuid.uuid4())
+            created_at = datetime.now(timezone.utc)
+            
+            cursor.execute("""
+                INSERT INTO default_schedules 
+                (id, teacher_id, teacher_name, day, period, subject, class_name, is_active, valid_until, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                schedule_id,
+                schedule.teacher_id,
+                schedule.teacher_name,
+                schedule.day,
+                schedule.period,
+                schedule.subject,
+                schedule.class_name,
+                1,  # is_active = True
+                valid_until.isoformat() if valid_until else None,
+                created_at.isoformat()
+            ))
+            
+            conn.commit()
+            
+            # Return the created schedule
+            return DefaultSchedule(
+                id=schedule_id,
+                teacher_id=schedule.teacher_id,
+                teacher_name=schedule.teacher_name,
+                day=schedule.day,
+                period=schedule.period,
+                subject=schedule.subject,
+                class_name=schedule.class_name,
+                is_active=True,
+                valid_until=valid_until,
+                created_at=created_at
+            )
+            
+    except Exception as e:
+        logger.error(f"Error creating default schedule: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create default schedule: {str(e)}")
+
+@api_router.post("/default-schedules/apply", status_code=200)
+async def apply_default_schedules(current_user: User = Depends(get_current_user)):
+    """Apply active default schedules to the main schedule (Admin only)"""
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get active default schedules
+            cursor.execute("""
+                SELECT * FROM default_schedules 
+                WHERE is_active = 1 
+                AND (valid_until IS NULL OR valid_until >= ?)
+            """, (datetime.now(timezone.utc).isoformat(),))
+            
+            default_schedules = [dict(row) for row in cursor.fetchall()]
+            
+            if not default_schedules:
+                return {"status": "success", "message": "No active default schedules to apply", "schedules_applied": 0}
+            
+            # Clear existing schedules
+            cursor.execute("DELETE FROM schedules")
+            
+            # Apply default schedules
+            for schedule in default_schedules:
+                schedule_id = str(uuid.uuid4())
+                updated_at = datetime.now(timezone.utc).isoformat()
+                
+                cursor.execute("""
+                    INSERT INTO schedules 
+                    (id, teacher_id, teacher_name, day, period, subject, class_name, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    schedule_id,
+                    schedule['teacher_id'],
+                    schedule['teacher_name'],
+                    schedule['day'],
+                    schedule['period'],
+                    schedule['subject'],
+                    schedule['class_name'],
+                    updated_at
+                ))
+            
+            conn.commit()
+            
+        return {
+            "status": "success", 
+            "message": f"Successfully applied {len(default_schedules)} default schedules",
+            "schedules_applied": len(default_schedules)
+        }
+    
+    except Exception as e:
+        logger.error(f"Error applying default schedules: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to apply default schedules: {str(e)}"
+        )
+
+@api_router.delete("/default-schedules/{schedule_id}")
+async def delete_default_schedule(schedule_id: str, current_user: User = Depends(get_current_user)):
+    """Delete a default schedule (Admin only)"""
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Check if schedule exists
+        cursor.execute("SELECT * FROM default_schedules WHERE id = ?", (schedule_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Default schedule not found")
+        
+        cursor.execute("DELETE FROM default_schedules WHERE id = ?", (schedule_id,))
+        conn.commit()
+
+    return {"message": "Default schedule deleted successfully"}
+
+@api_router.post("/default-schedules/load-from-current")
+async def load_defaults_from_current_schedule(current_user: User = Depends(get_current_user)):
+    """Load current schedules as default schedules (Admin only)"""
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get all current schedules
+            cursor.execute("SELECT * FROM schedules")
+            current_schedules = [dict(row) for row in cursor.fetchall()]
+            
+            if not current_schedules:
+                return {"status": "success", "message": "No schedules to load", "schedules_loaded": 0}
+            
+            # Clear existing default schedules
+            cursor.execute("DELETE FROM default_schedules")
+            
+            # Create default schedules from current schedules
+            valid_until = datetime.now(timezone.utc) + timedelta(hours=24)
+            created_at = datetime.now(timezone.utc)
+            
+            for schedule in current_schedules:
+                default_id = str(uuid.uuid4())
+                
+                cursor.execute("""
+                    INSERT INTO default_schedules 
+                    (id, teacher_id, teacher_name, day, period, subject, class_name, is_active, valid_until, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    default_id,
+                    schedule['teacher_id'],
+                    schedule['teacher_name'],
+                    schedule['day'],
+                    schedule['period'],
+                    schedule['subject'],
+                    schedule['class_name'],
+                    1,
+                    valid_until.isoformat(),
+                    created_at.isoformat()
+                ))
+            
+            conn.commit()
+            
+        return {
+            "status": "success",
+            "message": f"Successfully loaded {len(current_schedules)} schedules as defaults",
+            "schedules_loaded": len(current_schedules)
+        }
+    
+    except Exception as e:
+        logger.error(f"Error loading defaults from current schedule: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load defaults: {str(e)}"
+        )
+
 # ============ Settings Routes ============
 
 @api_router.get("/settings/break-period")
@@ -1462,19 +1760,21 @@ async def load_demo_schedules_endpoint(current_user: User = Depends(get_current_
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
+    try:
+        # Clear existing data first in a separate transaction
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM schedules")
+            cursor.execute("DELETE FROM changelogs")
+            conn.commit()
 
-        # Clear existing schedules and changelogs
-        cursor.execute("DELETE FROM schedules")
-        cursor.execute("DELETE FROM changelogs")
-
-        # Load demo data
+        # Load demo data in a separate transaction to avoid locking
         await load_demo_schedules()
 
-        conn.commit()
-
-    return {"message": "Demo schedules loaded successfully", "status": "success"}
+        return {"message": "Demo schedules loaded successfully", "status": "success"}
+    except Exception as e:
+        logger.error(f"Error loading demo schedules: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to load demo schedules: {str(e)}")
 
 @api_router.post("/demo/clear-schedules")
 async def clear_all_schedules(current_user: User = Depends(get_current_user)):

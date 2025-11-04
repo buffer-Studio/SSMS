@@ -57,21 +57,24 @@ const TeacherDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, set
   };
 
   const isRecentChange = (updatedAt) => {
-    // Don't highlight schedules that were created recently as "updated"
-    // Only highlight actual modifications, not initial demo data
-    return false; // Temporarily disable recent change highlighting for demo data
+    if (!updatedAt) return false;
+
+    const updatedDate = new Date(updatedAt);
+    const now = new Date();
+    const diffMs = now - updatedDate;
+
+    // Consider it recent if updated within the last 24 hours
+    // But exclude schedules that were likely loaded as demo data
+    // (demo data timestamps are usually very close together)
+    const recentThreshold = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    const demoThreshold = 5 * 60 * 1000; // 5 minutes - if updated very recently, likely demo data
+
+    return diffMs < recentThreshold && diffMs > demoThreshold;
   };
 
   const scheduleStats = {
     totalClasses: schedules.length,
-    thisWeek: schedules.filter(s => {
-      const today = new Date();
-      const weekStart = new Date(today.setDate(today.getDate() - today.getDay()));
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
-      const scheduleDate = new Date(`2024-01-01 ${s.day}`); // Placeholder for day comparison
-      return true; // Simplified for now
-    }).length,
+    thisWeek: schedules.length, // All current schedules are "this week" for now
     recentChanges: changelogs.length
   };
 

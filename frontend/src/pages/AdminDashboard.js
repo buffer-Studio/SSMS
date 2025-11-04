@@ -49,13 +49,23 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
     fetchChangelogs();
   }, [token]);
 
-  const handleDataUpdate = () => {
-    refetchTeachers();
-    refetchSchedules();
+  const isRecentChange = (updatedAt) => {
+    if (!updatedAt) return false;
+
+    const updatedDate = new Date(updatedAt);
+    const now = new Date();
+    const diffMs = now - updatedDate;
+
+    // Consider it recent if updated within the last 24 hours
+    // But exclude schedules that were likely loaded as demo data
+    // (demo data timestamps are usually very close together)
+    const recentThreshold = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    const demoThreshold = 5 * 60 * 1000; // 5 minutes - if updated very recently, likely demo data
+
+    return diffMs < recentThreshold && diffMs > demoThreshold;
   };
 
-  // Legacy fetchData function for backward compatibility
-  const fetchData = () => {
+  const handleDataUpdate = () => {
     refetchTeachers();
     refetchSchedules();
   };
@@ -449,6 +459,7 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                 breakAfter={breakAfter}
                 onCellClick={handleScheduleClick}
                 onEmptyCellClick={handleAddScheduleEntry}
+                isRecentChange={isRecentChange}
                 isAdmin={true}
               />
             </div>
@@ -507,6 +518,7 @@ const AdminDashboard = ({ user, token, onLogout, exhibitionMode, darkMode, setDa
                     breakAfter={breakAfter}
                     onCellClick={handleScheduleClick}
                     onEmptyCellClick={handleAddScheduleEntry}
+                    isRecentChange={isRecentChange}
                     isAdmin={true}
                   />
                 </div>
