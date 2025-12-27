@@ -269,7 +269,16 @@ Toggle exhibition mode from the homepage to showcase the system with:
 - Or find and kill specific process: `ps aux | grep python` then `kill [PID]`
 - Check if port is free: `ss -tlnp | grep 8000`
 
-## 📄 API Endpoints
+## 🚀 Future Roadmap
+
+- **True Real-time Sync**: Replace manual refresh with WebSockets for instant teacher notifications.
+- **Export Options**: One-click PDF and Excel export for teacher timetables.
+- **Advanced Analytics**: Admin dashboard showing teacher workload and room utilization rates.
+- **Mobile App**: Dedicated React Native mobile application for teachers.
+- **Database Migrations**: Implement Alembic for robust schema evolution.
+- **Automated Testing**: Full CI/CD pipeline with Pytest and Playwright.
+
+## � API Endpoints
 
 ### Authentication
 - `POST /api/auth/login` - Login and get JWT token
