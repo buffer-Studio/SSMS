@@ -22,6 +22,12 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # SQLite database setup
 DATABASE_PATH = ROOT_DIR / "ssms.db"
 
@@ -660,12 +666,7 @@ async def load_demo_schedules():
 
         conn.commit()
 
-@app.on_event("startup")
-async def startup_event():
-    # Initialize database tables first
-    init_database()
-    # Then initialize demo data
-    await init_demo_data()
+
 
 import re
 import html
@@ -1767,11 +1768,7 @@ app.add_middleware(
 # Add security middleware AFTER CORS
 # app.add_middleware(SecurityHeadersMiddleware)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+
 
 @app.on_event("startup")
 async def startup_event():
